@@ -87,15 +87,59 @@ docs(readme): 설치 가이드에 환경변수 설정 방법 추가
 ## 2. 브랜치 네이밍 컨벤션
 
 ```
-feature/기능명       예: feature/login-page
-fix/버그명           예: fix/cart-quantity-bug
-hotfix/긴급수정명     예: hotfix/payment-crash
-release/버전명        예: release/1.2.0
-chore/작업명          예: chore/update-dependencies
+<작업브랜치>-<type>/<작업내용>/<ticket번호>
 ```
 
-- 브랜치명은 **소문자 + 하이픈(-)**을 사용합니다.
-- 이슈 번호가 있다면 포함을 권장합니다. 예: `feature/123-login-page`
+### 2.1 작업 브랜치
+
+변경 대상에 따라 아래 작업 브랜치 중 하나를 선택합니다.
+
+| 작업 브랜치 | 담당 영역 |
+|------------|----------|
+| `App-master` | Flutter 모바일 앱 |
+| `Server-master` | Spring Boot 서버 |
+| `Robot-master` | Jetson Orin Nano 로봇 |
+| `Raspberry-master` | Raspberry Pi 5 |
+
+### 2.2 Type 목록
+
+| Type | 설명 |
+|------|------|
+| `feature` | 새로운 기능 개발 |
+| `fix` | 버그 수정 |
+| `hotfix` | 운영 환경의 긴급 오류 수정 |
+| `refactor` | 기능 변화 없는 코드 구조 개선 |
+| `docs` | 문서 추가 또는 수정 |
+| `test` | 테스트 코드 추가 또는 수정 |
+| `chore` | 설정, 의존성 등 기타 작업 |
+| `release` | 배포 및 릴리스 준비 |
+
+### 2.3 작성 규칙
+
+- 브랜치명은 반드시 **`<작업브랜치>-<type>/<작업내용>/<ticket번호>`** 형식을 사용합니다.
+- `작업브랜치`는 변경 대상에 맞는 기준 브랜치명을 그대로 사용합니다.
+- `type`은 Type 목록 중 하나를 소문자로 작성합니다.
+- `작업내용`은 영문 소문자와 하이픈(`-`)을 사용해 간결하게 작성합니다.
+- `ticket번호`는 생략하지 않고 팀 이슈 트래커의 실제 티켓 번호를 작성합니다.
+- 새 브랜치는 해당 작업 브랜치의 최신 상태에서 생성합니다.
+
+### 2.4 예시
+
+```text
+App-master-feature/login-screen/123
+Server-master-fix/token-expiration/124
+Robot-master-feature/object-detection/125
+Raspberry-master-chore/device-setup/126
+```
+
+잘못된 예시:
+
+```text
+feature/login-screen               # 작업 브랜치와 티켓 번호 누락
+Server-master-fix/token-expiration # 티켓 번호 누락
+Robot-master-Feature/camera/125     # type에 대문자 사용
+App-master-feature/login_screen/123 # 작업 내용에 언더스코어 사용
+```
 
 ---
 
@@ -184,6 +228,9 @@ jobs:
 - [ ] 제목 끝에 마침표가 없는가?
 - [ ] 하나의 커밋에 여러 작업이 섞여있지 않은가?
 - [ ] 이슈 번호를 footer에 명시했는가? (해당 시)
+- [ ] 브랜치명이 `<작업브랜치>-<type>/<작업내용>/<ticket번호>` 형식인가?
+- [ ] 변경 대상에 맞는 작업 브랜치에서 분기했는가?
+- [ ] 브랜치명에 실제 티켓 번호를 포함했는가?
 
 ---
 
