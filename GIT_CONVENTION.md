@@ -126,10 +126,10 @@ docs(readme): 설치 가이드에 환경변수 설정 방법 추가
 ### 2.4 예시
 
 ```text
-App-master-feature/login-screen/123
-Server-master-fix/token-expiration/124
-Robot-master-feature/object-detection/125
-Raspberry-master-chore/device-setup/126
+App-feature/login-screen/123
+Server-fix/token-expiration/124
+Robot-feature/object-detection/125
+Raspberry-chore/device-setup/126
 ```
 
 잘못된 예시:
