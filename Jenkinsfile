@@ -56,7 +56,8 @@ pipeline {
                 sh '''
                     . venv/bin/activate
                     # 심각한 문법 오류(Syntax error) 및 정의되지 않은 변수 참조 등만 찾도록 설정
-                    flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
+                    # venv, .git 등 불필요한 폴더는 검사 대상에서 제외합니다.
+                    flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics --exclude=venv,.git,__pycache__
                 '''
             }
         }
