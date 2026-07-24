@@ -34,8 +34,15 @@ pipeline {
                     . venv/bin/activate
                     pip install --upgrade pip
                     
-                    # 프로젝트 의존성 설치
-                    pip install -r requirements.txt
+                    # CI 서버(Linux)와 실제 로봇(Jetson) 환경의 차이로 인한 CUDA 패키지 충돌 방지
+                    # 원본에서 cuda, nvidia, torch 관련 내용을 제외한 CI용 요구사항 파일 생성
+                    grep -vE 'cuda-toolkit|nvidia-|torch' requirements.txt > requirements_ci.txt
+                    
+                    # CI(서버) 환경에서는 무거운 GPU 버전 대신 가벼운 CPU 버전의 PyTorch를 설치
+                    pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
+                    
+                    # 나머지 프로젝트 의존성 설치
+                    pip install -r requirements_ci.txt
                     
                     # CI 검증을 위한 추가 패키지 설치
                     pip install pytest flake8
