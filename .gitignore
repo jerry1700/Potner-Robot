@@ -1,0 +1,37 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+venv/
+env/
+.venv/
+.env/
+
+# IDE / Editor folders
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Logs
+*.log
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Project specific
+# YOLO model weights (If the .pt file is large, it should be ignored. 
+# yolo11n.pt is ~5.6MB, which is small enough for GitHub, but you can uncomment below to ignore it)
+# *.pt
+
+# Generated images / data
+# If you don't want to track generated markers, uncomment the line below
+# marker_id_*.png
