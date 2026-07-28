@@ -9,10 +9,14 @@ base_driver:
     serial_port: /dev/ttyUSB_ESP32   # udev 규칙으로 고정 (README 참고)
     baud_rate: 115200
 
-    wheel_diameter: 0.065     # TODO 실측 (m)
+    wheel_diameter: 0.075     # 확정 — 75mm 로봇용 구동 바퀴
     wheel_separation: 0.200   # TODO 실측 (m) — 좌우 바퀴 중심 간 거리
     counts_per_rev: 1440      # 확정 — FIT0403 출력축 CPR
-    max_wheel_speed: 0.25     # 안전 제한 (m/s). 이론 최대는 약 0.41
+
+    # 안전 제한. 122RPM x 75mm 바퀴면 이론 최대는 약 0.48 m/s 지만,
+    # 화분을 이고 다니는 로봇이라 절반 이하로 묶습니다. 급가속하면
+    # 무게중심이 높아 흔들리고 식물이 쏟아집니다.
+    max_wheel_speed: 0.25
 
     cmd_vel_timeout: 0.5      # 이 시간 동안 명령이 없으면 정지 (s)
     publish_rate: 30.0        # odom 발행 주기 (Hz)

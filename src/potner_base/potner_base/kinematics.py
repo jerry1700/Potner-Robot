@@ -23,10 +23,10 @@ class DriveConfig:
     TODO: 조립 후 실측값으로 교체할 것. 아래는 임시 기본값입니다.
     """
 
-    wheel_diameter: float = 0.065  # 바퀴 지름 (m) — 실측 필요
+    wheel_diameter: float = 0.075  # 확정 — 75mm 구동 바퀴
     wheel_separation: float = 0.200  # 좌우 바퀴 중심 간 거리 (m) — 실측 필요
     counts_per_rev: int = 1440  # FIT0403 출력축 CPR (확정값)
-    max_wheel_speed: float = 0.25  # 바퀴 선속도 상한 (m/s) — 안전 제한
+    max_wheel_speed: float = 0.25  # 안전 제한 (m/s). 이론 최대는 약 0.48
 
     @property
     def wheel_circumference(self) -> float:
