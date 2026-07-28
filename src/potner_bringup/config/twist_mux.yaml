@@ -1,0 +1,35 @@
+# twist_mux — 여러 노드가 동시에 내리는 주행 명령을 하나로 정리합니다.
+#
+# 이게 없으면 Nav2와 도킹 컨트롤러와 안전 노드가 각자 모터를 건드려서,
+# 어느 명령이 최종적으로 먹히는지 알 수 없게 됩니다. legacy 코드에서
+# 긴급정지 플래그를 손으로 관리하던 문제를 구조적으로 해결합니다.
+#
+# priority 가 높은 쪽이 이깁니다. 각 입력은 timeout 동안 새 메시지가
+# 없으면 죽은 것으로 보고 다음 우선순위에 자리를 넘깁니다.
+
+twist_mux:
+  ros__parameters:
+    topics:
+      # 1순위 — 안전. 어떤 상황에서도 이게 최우선입니다.
+      safety:
+        topic: cmd_vel_safety
+        timeout: 0.3
+        priority: 255
+
+      # 2순위 — 사람이 앱이나 조이스틱으로 직접 조종할 때
+      teleop:
+        topic: cmd_vel_teleop
+        timeout: 0.5
+        priority: 200
+
+      # 3순위 — 스테이션 정밀 도킹. Nav2보다 위에 둡니다.
+      docking:
+        topic: cmd_vel_docking
+        timeout: 0.5
+        priority: 150
+
+      # 4순위 — Nav2 자율주행 (평상시 주행)
+      navigation:
+        topic: cmd_vel_nav
+        timeout: 0.5
+        priority: 100
