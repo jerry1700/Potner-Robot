@@ -50,6 +50,7 @@ class DockingServer(Node):
         self.declare_parameter("marker_lost_timeout", 2.0)
         self.declare_parameter("docking_timeout", 90.0)
         self.declare_parameter("confirm_timeout", 5.0)
+        self.declare_parameter("search_timeout", 15.0)
         self.declare_parameter("require_station_confirm", False)
 
         self.gains = DockingGains(
@@ -63,6 +64,7 @@ class DockingServer(Node):
             marker_lost_timeout=self.get_parameter("marker_lost_timeout").value,
             docking_timeout=self.get_parameter("docking_timeout").value,
             confirm_timeout=self.get_parameter("confirm_timeout").value,
+            search_timeout=self.get_parameter("search_timeout").value,
             require_station_confirm=self.get_parameter(
                 "require_station_confirm"
             ).value,
@@ -154,6 +156,7 @@ class DockingServer(Node):
             marker_lost_timeout=self.limits.marker_lost_timeout,
             docking_timeout=timeout if timeout > 0.0 else self.limits.docking_timeout,
             confirm_timeout=self.limits.confirm_timeout,
+            search_timeout=self.limits.search_timeout,
             require_station_confirm=self.limits.require_station_confirm,
         )
         session = DockingSession(self.gains, limits)
@@ -221,8 +224,10 @@ class DockingServer(Node):
     def _feedback(self, step, session):
         feedback = DockToStation.Feedback()
         feedback.state = step.phase.value
-        if session.last_observation is not None:
-            distance, lateral, yaw = session.last_observation
+        # 이번 주기의 관측만 담습니다. 옛 값을 계속 보내면 마커를 놓친
+        # 상태에서도 숫자가 그대로 떠서 정상 동작으로 오해합니다.
+        if step.observation is not None:
+            distance, lateral, yaw = step.observation
             feedback.distance = float(distance)
             feedback.lateral_error = float(lateral)
             feedback.yaw_error = float(yaw)

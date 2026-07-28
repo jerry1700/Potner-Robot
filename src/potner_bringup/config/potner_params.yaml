@@ -65,6 +65,7 @@ docking_server:
     max_angular: 0.8         # 각속도 상한 (rad/s)
     target_distance: 0.15    # 목표 정지 거리 (m)
     marker_lost_timeout: 2.0 # 이 시간 넘게 마커를 못 보면 정지
+    search_timeout: 15.0     # 마커를 한 번도 못 보면 이때 포기
     docking_timeout: 90.0    # 이 시간 넘으면 포기 (무한루프 방지)
     confirm_timeout: 5.0     # 스테이션 접점을 기다리는 시간
 
