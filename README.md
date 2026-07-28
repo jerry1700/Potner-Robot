@@ -181,6 +181,40 @@ ros2 launch potner_bringup nav2.launch.py map:=$HOME/potner_ws/maps/home.yaml
 `src/potner_firmware/README.md` 참고. **바퀴를 공중에 띄운 채로** 첫
 동작을 확인하세요.
 
+## 모터 없이 도킹 제어 검증하기
+
+모터가 없어도 **`cmd_vel_docking` 값을 보면 제어 루프 전체를 확인**할 수
+있습니다. 하드웨어를 기다릴 필요가 없습니다.
+
+```bash
+# 터미널 1 — 카메라 + 마커 탐지 + 도킹 서버
+ros2 launch potner_bringup robot.launch.py use_lidar:=false
+
+# 터미널 2 — 나가는 주행 명령 관찰
+ros2 topic echo /cmd_vel_docking
+
+# 터미널 3 — 도킹 목표 전송 (마커 1번 = 충전 스테이션)
+ros2 action send_goal /dock_to_station potner_msgs/action/DockToStation \
+    "{marker_id: 1}" --feedback
+```
+
+마커를 손에 들고 움직이며 확인할 것:
+
+| 마커를 이렇게 | 기대 동작 |
+|---|---|
+| 화면 오른쪽으로 | `angular.z` 양수 |
+| 화면 왼쪽으로 | `angular.z` 음수 |
+| 멀리 (1m) | `linear.x` 약 0.12 |
+| 15cm 안쪽으로 | `linear.x` 0, 각도만 보정 |
+| 정면으로 가까이 고정 | `CONFIRMING` → 5초 후 성공 |
+| 카메라에서 숨김 | 2초 후 전부 0 (정지) |
+
+마지막 항목이 특히 중요합니다. 마커를 놓쳤을 때 멈추지 않으면 실기에서
+스테이션을 들이받습니다.
+
+`--feedback` 을 붙이면 단계(`SEARCHING`/`APPROACHING`/`ALIGNING`/
+`CONFIRMING`)와 실시간 오차가 같이 보입니다.
+
 ## 주행 명령의 흐름
 
 여러 노드가 동시에 모터를 건드리지 못하도록 `twist_mux` 가 중재합니다.
@@ -223,8 +257,12 @@ ROS 2 없이 돌아갑니다. 젠킨스 CI가 이 테스트와 flake8 문법 검
 ## 다음 작업
 
 - [x] YDLIDAR 드라이버 연동 — `/scan` 약 11Hz 확인
+- [x] 카메라 + ArUco 마커 인식 — `/image_raw` 29Hz, 마커 ID 확인
+- [x] `DockToStation` 액션 서버 및 `mission_manager` 연결
+- [ ] 카메라 초점거리 보정 (`focal_calibrator`)
 - [ ] ESP32 펌웨어 실기 검증 및 PID 튜닝
-- [ ] `potner_msgs` 빌드 후 `DockToStation` 액션 서버 연결
-- [ ] 스테이션별 지도 좌표 등록 (`mission_manager` 의 `_start_mission`)
+- [ ] 축간거리(`wheel_separation`) 실측
+- [ ] SLAM 지도 생성 후 `station_poses` 좌표 채우기
 - [ ] YOLO TensorRT 변환 (`yolo export format=engine`)
+- [ ] 스테이션 완성 후 `require_station_confirm: true` 로 전환
 - [ ] `legacy/sensors/ultrasonic.py` 를 `Raspberry-master` 로 이관
