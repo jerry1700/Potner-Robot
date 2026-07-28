@@ -2,7 +2,7 @@
 
 import pytest
 
-from potner_docking.approach_controller import DockingGains, compute, normalize_yaw
+from potner_docking.approach_controller import DockingGains, compute
 
 GAINS = DockingGains()
 
@@ -52,9 +52,3 @@ def test_거리는_됐는데_정렬이_안_되면_제자리에서_돈다():
 def test_각속도에_상한이_걸린다():
     command = compute(1.0, 100000.0, 0.0, GAINS)
     assert abs(command.angular) <= GAINS.max_angular
-
-
-def test_마커를_정면에서_본_각도를_0_기준으로_접는다():
-    assert normalize_yaw(175.0) == pytest.approx(-5.0)
-    assert normalize_yaw(-175.0) == pytest.approx(5.0)
-    assert normalize_yaw(10.0) == pytest.approx(10.0)

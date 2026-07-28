@@ -81,13 +81,9 @@ def pixel_to_lateral_error(marker_corners, image_width):
     return center_x - (image_width / 2.0)
 
 
-def normalize_yaw(yaw_deg):
-    """마커를 정면에서 보면 180도 근처가 나오므로 0 기준으로 접습니다."""
-    if yaw_deg > 90.0:
-        return yaw_deg - 180.0
-    if yaw_deg < -90.0:
-        return yaw_deg + 180.0
-    return yaw_deg
+# 기울기 정규화는 값이 만들어지는 곳에서 합니다.
+# potner_perception.marker_pose.normalize_yaw 참고. 여기서 한 번 더 접으면
+# 어느 쪽이 원본인지 알 수 없어져서 일부러 두지 않습니다.
 
 
 def _clamp(value, limit):
