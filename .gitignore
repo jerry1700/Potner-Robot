@@ -27,8 +27,23 @@ env/
 ehthumbs.db
 Thumbs.db
 
+# ROS 2 / colcon 빌드 산출물
+build/
+install/
+log/
+
+# PlatformIO (ESP32 펌웨어)
+.pio/
+.pioenvs/
+.piolibdeps/
+
+# TensorRT 변환 결과물 (보드마다 달라서 공유하면 안 됩니다)
+*.engine
+
+# SLAM으로 만든 지도는 추적합니다 (maps/) — 팀이 공유해야 하는 산출물입니다.
+
 # Project specific
-# YOLO model weights (If the .pt file is large, it should be ignored. 
+# YOLO model weights (If the .pt file is large, it should be ignored.
 # yolo11n.pt is ~5.6MB, which is small enough for GitHub, but you can uncomment below to ignore it)
 # *.pt
 

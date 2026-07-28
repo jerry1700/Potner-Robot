@@ -56,8 +56,9 @@ pipeline {
                 sh '''
                     . venv/bin/activate
                     # 심각한 문법 오류(Syntax error) 및 정의되지 않은 변수 참조 등만 찾도록 설정
-                    # venv, .git 등 불필요한 폴더는 검사 대상에서 제외합니다.
-                    flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics --exclude=venv,.git,__pycache__
+                    # venv, colcon 빌드 산출물(build/install/log), PlatformIO 캐시는 제외합니다.
+                    flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics \
+                        --exclude=venv,.git,__pycache__,build,install,log,.pio
                 '''
             }
         }
@@ -67,9 +68,14 @@ pipeline {
                 echo 'Running Unit Tests...'
                 sh '''
                     . venv/bin/activate
-                    # 테스트 폴더 실행
-                    # 주의: 하드웨어 접근 로직은 CI 환경에서 에러를 뿜으므로, 
-                    # IS_CI_ENV 환경변수를 통해 pytest 내부에서 Mock 처리되도록 구성되어야 합니다.
+                    # CI 서버에는 ROS 2가 없습니다. 그래서 rclpy를 import 하는 노드 파일은
+                    # 테스트하지 않고, 계산 로직만 담긴 순수 파이썬 모듈을 검증합니다.
+                    #   - 차동 구동 기구학 / 오도메트리 적분
+                    #   - ESP32 시리얼 프로토콜 (체크섬)
+                    #   - 임무 우선순위 판단
+                    #   - 도킹 P 제어
+                    # 노드 파일과 계산 로직을 파일 단위로 분리해 둔 이유가 이것입니다.
+                    # 경로 설정은 tests/conftest.py 가 담당합니다.
                     pytest tests/ -v
                 '''
             }
