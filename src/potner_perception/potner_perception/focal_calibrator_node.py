@@ -4,19 +4,14 @@
 해서 화면 없는 젯슨에서는 쓸 수 없습니다. 이 도구는 이미 인식되고 있는
 ArUco 마커만으로 초점거리를 역산합니다.
 
-원리는 핀홀 모델입니다.
+핀홀 모델에서 거리와 초점거리는 비례합니다.
 
     거리 = 마커실측크기 x 초점거리 / 화면상픽셀크기
-
-거리와 초점거리가 비례하므로, 실제 거리를 알면 초점거리를 바로 구할 수
-있습니다.
-
     올바른 초점거리 = 현재초점거리 x (측정된거리 / 실제거리)
 
-왜곡 계수까지 구하지는 못하지만, 도킹 정확도에는 초점거리가 지배적이라
-이 정도로 충분합니다.
+왜곡 계수는 구하지 못하지만 도킹 정확도는 초점거리가 지배적이라 이
+정도로 충분합니다.
 
-사용법:
     터미널 1: ros2 launch potner_bringup robot.launch.py use_lidar:=false
     터미널 2: 마커를 렌즈에서 정확히 50cm 앞에 정면으로 두고
               ros2 run potner_perception focal_calibrator \\
@@ -30,15 +25,18 @@ from geometry_msgs.msg import Vector3
 from rclpy.node import Node
 from rclpy.qos import qos_profile_sensor_data
 
+# 표본이 이보다 흔들리면 마커나 카메라가 고정되지 않았다고 봅니다 (m).
+SPREAD_WARNING = 0.02
+
 
 class FocalCalibrator(Node):
     def __init__(self):
         super().__init__("focal_calibrator")
 
-        self.declare_parameter("true_distance", 0.5)  # 실제 거리 (m)
+        self.declare_parameter("true_distance", 0.5)
         self.declare_parameter("samples", 50)
-        self.declare_parameter("current_focal", 600.0)  # 지금 설정된 값
-        self.declare_parameter("max_yaw_deg", 15.0)  # 이보다 기울면 버림
+        self.declare_parameter("current_focal", 600.0)
+        self.declare_parameter("max_yaw_deg", 15.0)
 
         self.true_distance = self.get_parameter("true_distance").value
         self.target_samples = self.get_parameter("samples").value
@@ -53,14 +51,14 @@ class FocalCalibrator(Node):
         )
 
         self.get_logger().info(
-            "마커를 렌즈에서 %.2fm 앞에 정면으로 두세요. %d개 표본을 모읍니다."
-            % (self.true_distance, self.target_samples)
+            f"마커를 렌즈에서 {self.true_distance:.2f}m 앞에 정면으로 두세요. "
+            f"{self.target_samples}개 표본을 모읍니다."
         )
 
     def _on_pose(self, msg: Vector3):
         distance, _lateral, yaw = msg.x, msg.y, msg.z
 
-        # 비스듬히 본 마커는 거리 추정 오차가 큽니다. 정면 것만 씁니다.
+        # 비스듬히 본 마커는 거리 오차가 큽니다. 정면 것만 씁니다.
         if abs(yaw) > self.max_yaw:
             self.rejected += 1
             return
@@ -69,44 +67,43 @@ class FocalCalibrator(Node):
         count = len(self.distances)
 
         if count % 10 == 0:
-            self.get_logger().info("%d / %d 수집" % (count, self.target_samples))
+            self.get_logger().info(f"{count} / {self.target_samples} 수집")
 
         if count >= self.target_samples:
-            self._report()
+            self.report()
             rclpy.shutdown()
 
-    def _report(self):
-        # 평균이 아니라 중앙값을 씁니다. 순간적으로 튀는 값 하나가
-        # 결과를 통째로 끌고 가는 걸 막습니다.
+    def report(self):
+        """보정 결과를 출력합니다.
+
+        로거가 아니라 print 를 쓰는 이유는, 숫자를 읽어 설정에 옮겨 적는
+        용도라 타임스탬프 접두사가 방해되기 때문입니다.
+        """
+        # 평균이 아니라 중앙값을 씁니다. 순간적으로 튀는 값 하나가 결과를
+        # 통째로 끌고 가는 걸 막습니다.
         measured = statistics.median(self.distances)
         spread = statistics.pstdev(self.distances)
         suggested = self.current_focal * (measured / self.true_distance)
-        error_percent = (measured - self.true_distance) / self.true_distance * 100.0
+        error = (measured - self.true_distance) / self.true_distance * 100.0
 
         print("")
-        print("=" * 56)
-        print("  카메라 초점거리 보정 결과")
-        print("=" * 56)
-        print("  표본 수           : %d개 (기울어져서 버린 것 %d개)"
-              % (len(self.distances), self.rejected))
-        print("  측정 거리(중앙값) : %.4f m" % measured)
-        print("  표본 흔들림       : %.4f m" % spread)
-        print("  실제 거리         : %.4f m" % self.true_distance)
-        print("  현재 오차         : %+.1f %%" % error_percent)
-        print("-" * 56)
-        print("  현재 focal_length_px : %.1f" % self.current_focal)
-        print("  권장 focal_length_px : %.1f" % suggested)
-        print("=" * 56)
+        print("카메라 초점거리 보정 결과")
+        print(f"  표본 수            {len(self.distances)}개 "
+              f"(기울어져서 버림 {self.rejected}개)")
+        print(f"  측정 거리(중앙값)  {measured:.4f} m")
+        print(f"  표본 흔들림        {spread:.4f} m")
+        print(f"  실제 거리          {self.true_distance:.4f} m")
+        print(f"  현재 오차          {error:+.1f} %")
         print("")
-        print("  config/potner_params.yaml 의 marker_detector 항목에서")
-        print("  focal_length_px 를 %.1f 로 바꾸세요." % suggested)
+        print(f"  focal_length_px    {self.current_focal:.1f} -> {suggested:.1f}")
         print("")
+        print("  config/potner_params.yaml 의 marker_detector 항목에 반영하세요.")
 
-        if spread > 0.02:
-            print("  ⚠️  표본이 %.0fmm 나 흔들립니다. 마커나 카메라가 움직였거나"
-                  % (spread * 1000))
-            print("      조명이 부족합니다. 고정하고 다시 재보세요.")
+        if spread > SPREAD_WARNING:
             print("")
+            print(f"  경고: 표본이 {spread * 1000:.0f}mm 흔들립니다. 마커나 카메라가")
+            print("        움직였거나 조명이 부족합니다. 고정하고 다시 재세요.")
+        print("")
 
 
 def main(args=None):
@@ -115,8 +112,9 @@ def main(args=None):
     try:
         rclpy.spin(node)
     except KeyboardInterrupt:
+        # 표본이 다 모이기 전에 끊어도 지금까지 모인 것으로 계산해 줍니다.
         if node.distances:
-            node._report()
+            node.report()
     finally:
         if rclpy.ok():
             rclpy.shutdown()

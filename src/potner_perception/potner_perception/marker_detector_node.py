@@ -16,6 +16,7 @@ from sensor_msgs.msg import Image
 from std_msgs.msg import Int32
 
 from potner_perception.marker_pose import (
+    DEFAULT_MARKER_SIZE,
     CameraIntrinsics,
     create_detector,
     estimate_pose,
@@ -33,7 +34,7 @@ class MarkerDetector(Node):
     def __init__(self):
         super().__init__("marker_detector")
 
-        self.declare_parameter("marker_size", 0.05)  # 인쇄한 마커 한 변 (m)
+        self.declare_parameter("marker_size", DEFAULT_MARKER_SIZE)
         self.declare_parameter("focal_length_px", 600.0)
         self.declare_parameter("image_width", 640)
         self.declare_parameter("image_height", 480)
@@ -63,7 +64,7 @@ class MarkerDetector(Node):
             self.get_logger().warn("OpenCV 미설치 — 탐지를 건너뜁니다.")
             return None
         # OpenCV 4.5(젯팩 6 시스템)와 4.7 이상(개발 PC) 양쪽을 지원합니다.
-        self.get_logger().info("OpenCV %s 로 ArUco 탐지기 생성" % cv2.__version__)
+        self.get_logger().info(f"OpenCV {cv2.__version__} 로 ArUco 탐지기 생성")
         return create_detector()
 
     def _on_image(self, msg: Image):

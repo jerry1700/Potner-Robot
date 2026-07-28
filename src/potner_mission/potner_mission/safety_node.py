@@ -102,8 +102,8 @@ class SafetyNode(Node):
         # 하위 우선순위를 계속 막아줍니다. 한 번만 쏘면 곧 풀립니다.
         self._stop_pub.publish(Twist())
         self.get_logger().warn(
-            "장애물로 정지 중 (scan=%s, bumper=%s)"
-            % (self._scan_blocked, self._bumper_blocked),
+            f"장애물로 정지 중 (scan={self._scan_blocked}, "
+            f"bumper={self._bumper_blocked})",
             throttle_duration_sec=2.0,
         )
 

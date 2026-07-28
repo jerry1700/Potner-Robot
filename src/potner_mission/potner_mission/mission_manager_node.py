@@ -56,7 +56,7 @@ class MissionManager(Node):
         # TODO: SLAM 으로 지도를 만든 뒤 실제 좌표로 교체할 것.
         #   RViz 에서 스테이션 앞에 커서를 올리고 좌표를 읽으면 됩니다.
         for name in ("charging", "water", "sunlight", "wind"):
-            self.declare_parameter("station_poses.%s" % name, [0.0, 0.0, 0.0])
+            self.declare_parameter(f"station_poses.{name}", [0.0, 0.0, 0.0])
 
         self.thresholds = Thresholds(
             battery_percent=self.get_parameter("battery_percent").value,
@@ -93,7 +93,7 @@ class MissionManager(Node):
         self.create_timer(self.get_parameter("evaluate_period").value, self._evaluate)
         self.get_logger().info("mission_manager 시작 (상태: IDLE)")
 
-    # ------------------------------------------------------------------ 입력
+    # --- 입력 ---
 
     def _set(self, field):
         """Float32 토픽 값을 Readings 의 해당 필드에 넣는 콜백을 만듭니다."""
@@ -121,7 +121,7 @@ class MissionManager(Node):
         self._speech_pub.publish(String(data="다녀오셨어요? 오늘도 잘 지냈어요."))
         self._transition(MissionState.IDLE)
 
-    # ------------------------------------------------------------------ 판단
+    # --- 판단 ---
 
     def _evaluate(self):
         self._state_pub.publish(String(data=self.state.name))
@@ -131,11 +131,11 @@ class MissionManager(Node):
 
         station = evaluate(self.readings, self.thresholds)
         if station is not None:
-            self.get_logger().info("임무 발생: %s 스테이션으로 이동" % station.name)
+            self.get_logger().info(f"임무 발생: {station.name} 스테이션으로 이동")
             self._active_station = station
             self._start_navigation(station)
 
-    # ------------------------------------------------------------------ 이동
+    # --- 이동 ---
 
     def _start_navigation(self, station: StationMarker):
         if self.get_parameter("skip_navigation").value:
@@ -152,8 +152,8 @@ class MissionManager(Node):
         pose = self._station_pose(station)
         if pose is None:
             self.get_logger().error(
-                "%s 스테이션 좌표가 설정되지 않았습니다. station_poses 를 채우세요."
-                % station.name
+                f"{station.name} 스테이션 좌표가 설정되지 않았습니다. "
+                "station_poses 를 채우세요."
             )
             self._abort()
             return
@@ -165,7 +165,7 @@ class MissionManager(Node):
 
     def _station_pose(self, station: StationMarker):
         key = station.name.lower()
-        values = self.get_parameter("station_poses.%s" % key).value
+        values = self.get_parameter(f"station_poses.{key}").value
         if values is None or len(values) < 3:
             return None
         x, y, yaw = values[0], values[1], values[2]
@@ -197,14 +197,14 @@ class MissionManager(Node):
         # 접습니다. 재시도 정책은 실주행 데이터를 본 뒤 정하는 게 낫습니다.
         result = future.result()
         if result.status != 4:  # STATUS_SUCCEEDED
-            self.get_logger().error("Nav2 이동 실패 (status=%d)" % result.status)
+            self.get_logger().error(f"Nav2 이동 실패 (status={result.status})")
             self._abort()
             return
 
         self.get_logger().info("스테이션 근처 도착. 정밀 도킹으로 넘깁니다.")
         self._start_docking(self._active_station)
 
-    # ------------------------------------------------------------------ 도킹
+    # --- 도킹 ---
 
     def _start_docking(self, station: StationMarker):
         if not self._dock_client.wait_for_server(timeout_sec=2.0):
@@ -223,13 +223,9 @@ class MissionManager(Node):
     def _on_dock_feedback(self, message):
         feedback = message.feedback
         self.get_logger().info(
-            "도킹 %s — 거리 %.2fm, 좌우 %.0fpx, 각도 %.1f도"
-            % (
-                feedback.state,
-                feedback.distance,
-                feedback.lateral_error,
-                feedback.yaw_error,
-            ),
+            f"도킹 {feedback.state} — 거리 {feedback.distance:.2f}m, "
+            f"좌우 {feedback.lateral_error:.0f}px, "
+            f"각도 {feedback.yaw_error:.1f}도",
             throttle_duration_sec=1.0,
         )
 
@@ -244,17 +240,17 @@ class MissionManager(Node):
     def _on_dock_done(self, future):
         result = future.result().result
         if not result.success:
-            self.get_logger().error("도킹 실패: %s" % result.message)
+            self.get_logger().error(f"도킹 실패: {result.message}")
             self._abort()
             return
 
         self.get_logger().info(
-            "도킹 성공 (거리 %.3fm, 각도 %.1f도)"
-            % (result.final_distance, result.final_yaw_error)
+            f"도킹 성공 (거리 {result.final_distance:.3f}m, "
+            f"각도 {result.final_yaw_error:.1f}도)"
         )
         self._start_service()
 
-    # ------------------------------------------------------------------ 서비스
+    # --- 서비스 ---
 
     def _start_service(self):
         """스테이션에 급수·송풍 등을 요청하고 완료를 기다립니다."""
@@ -270,11 +266,11 @@ class MissionManager(Node):
         if self._service_timer is not None:
             self._service_timer.cancel()
             self._service_timer = None
-        self.get_logger().info("%s 서비스 완료" % self._active_station.name)
+        self.get_logger().info(f"{self._active_station.name} 서비스 완료")
         self._active_station = None
         self._transition(MissionState.IDLE)
 
-    # ------------------------------------------------------------------ 보조
+    # --- 보조 ---
 
     def _abort(self):
         self._active_station = None
@@ -284,7 +280,7 @@ class MissionManager(Node):
         if new_state is self.state:
             return
         self.get_logger().info(
-            "상태 전이: %s -> %s" % (self.state.name, new_state.name)
+            f"상태 전이: {self.state.name} -> {new_state.name}"
         )
         self.state = new_state
         self._state_pub.publish(String(data=self.state.name))
