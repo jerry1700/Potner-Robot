@@ -26,6 +26,17 @@ ROS 2로 옮기면서 하드웨어 구성이 바뀌었기 때문에 그대로는
 | `test_straight_docking.py` | 필요시 `potner_base` 통합 테스트로 재작성 | 하드웨어 수동 테스트 스크립트 |
 | `test_obstacle_avoidance.py` | 동일 | pytest 테스트가 아니라 수동 실행 스크립트였음 |
 
+## 알아둘 것 — 이 코드는 젯슨에서 애초에 안 돌았습니다
+
+`vision/auto_docking_vision.py` 와 `vision/create_station_markers.py` 는
+`aruco.ArucoDetector` 를 씁니다. 이 API 는 **OpenCV 4.7 에서 추가**된
+것인데, 젯팩 6 의 시스템 OpenCV 는 **4.5.4** 입니다. venv 안에 pip 로 깐
+최신 OpenCV 에서만 동작했다는 뜻입니다.
+
+새 코드(`potner_perception.marker_pose.create_detector`)는 양쪽 API 를
+모두 지원하도록 만들었습니다. `cv_bridge` 가 시스템 OpenCV 4.5.4 에
+링크되어 있어서 버전을 올리면 ROS 영상 스택이 깨지기 때문입니다.
+
 ## 왜 지우지 않고 남겨두나
 
 1. **도킹 비전 알고리즘은 검증된 자산입니다.** solvePnP 파라미터와 P 제어
