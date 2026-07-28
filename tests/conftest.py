@@ -12,7 +12,13 @@ from pathlib import Path
 SRC = Path(__file__).resolve().parent.parent / "src"
 
 # 각 ROS 패키지의 파이썬 모듈 폴더를 import 경로에 올립니다.
-for package in ("potner_base", "potner_docking", "potner_mission", "potner_perception"):
+for package in (
+    "potner_base",
+    "potner_docking",
+    "potner_mission",
+    "potner_perception",
+    "potner_llm",
+):
     path = SRC / package
     if path.is_dir():
         sys.path.insert(0, str(path))
