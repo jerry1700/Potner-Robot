@@ -53,7 +53,7 @@ class MqttBridge(Node):
         self._client = self._connect()
         self.create_timer(self.get_parameter("publish_period").value, self._upload)
 
-    # ------------------------------------------------------------------ MQTT
+    # --- MQTT ---
 
     def _connect(self):
         if mqtt is None:
@@ -69,15 +69,15 @@ class MqttBridge(Node):
         try:
             client.connect(host, port, keepalive=60)
             client.loop_start()
-            self.get_logger().info("MQTT 연결: %s:%s" % (host, port))
+            self.get_logger().info(f"MQTT 연결: {host}:{port}")
         except Exception as exc:
             # 인터넷이 없어도 로봇 자체는 돌아야 하므로 죽지 않습니다.
-            self.get_logger().error("MQTT 연결 실패: %s" % exc)
+            self.get_logger().error(f"MQTT 연결 실패: {exc}")
             return None
         return client
 
     def _on_connect(self, client, userdata, flags, rc):
-        client.subscribe("potner/%s/speech" % self._device_id)
+        client.subscribe(f"potner/{self._device_id}/speech")
         client.subscribe("potner/station/+/docked")
 
     def _on_message(self, client, userdata, message):
@@ -90,7 +90,7 @@ class MqttBridge(Node):
         elif topic.endswith("/docked"):
             self._station_pub.publish(Bool(data=payload.strip() in ("1", "true", "True")))
 
-    # ------------------------------------------------------------------ ROS
+    # --- ROS ---
 
     def _capture(self, key):
         def callback(msg):
@@ -108,11 +108,11 @@ class MqttBridge(Node):
         if self._client is None or not self._latest:
             return
 
-        topic = "potner/%s/telemetry" % self._device_id
+        topic = f"potner/{self._device_id}/telemetry"
         try:
             self._client.publish(topic, json.dumps(self._latest))
         except Exception as exc:
-            self.get_logger().error("MQTT 발행 실패: %s" % exc)
+            self.get_logger().error(f"MQTT 발행 실패: {exc}")
 
 
 def main(args=None):

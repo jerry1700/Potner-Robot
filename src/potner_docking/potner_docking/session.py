@@ -1,8 +1,8 @@
 """도킹 진행 상태 판단.
 
-ROS와 시계에 의존하지 않는 순수 로직입니다. 경과 시간을 인자로 받기
-때문에 테스트에서 임의의 시나리오를 즉시 재현할 수 있습니다. "마커를
-3초간 놓쳤을 때 멈추는가" 같은 검증을 실제로 3초 기다리지 않고 합니다.
+ROS와 시계에 의존하지 않는 순수 파이썬 모듈입니다. 경과 시간을 인자로
+받으므로 "마커를 3초간 놓쳤을 때" 같은 시나리오를 실제로 기다리지 않고
+테스트할 수 있습니다.
 
 단계 전이:
 
@@ -38,13 +38,12 @@ class SessionLimits:
     confirm_timeout: float = 5.0  # 스테이션 접점을 기다리는 시간
 
     # 목표 마커를 한 번도 못 본 채 이 시간이 지나면 포기합니다. 전체
-    # 제한만 두면 마커가 아예 없는 자리에서 90초를 서 있게 됩니다.
-    # 엉뚱한 곳에 도착했다는 뜻이므로 빨리 알려주는 게 낫습니다.
+    # 제한만 두면 마커가 없는 자리에서 90초를 서 있게 됩니다.
     search_timeout: float = 15.0
 
-    # 스테이션 홀 센서(A3144) 신호를 도킹 성공 조건으로 요구할지.
-    # 스테이션이 아직 없으므로 기본값은 False 입니다. 스테이션이
-    # 완성되면 True 로 바꿔 물리적 접점을 확인하게 하세요.
+    # 스테이션 홀 센서(A3144) 신호를 성공 조건으로 요구할지. 스테이션이
+    # 아직 없으므로 기본값은 False 입니다. 완성되면 True 로 바꿔서 물리적
+    # 접점까지 확인하게 하세요.
     require_station_confirm: bool = False
 
 
@@ -54,23 +53,23 @@ class DockingStep:
     linear: float
     angular: float
     reason: str
-    # 이번 주기에 실제로 본 관측. 마커를 놓쳤으면 None 입니다.
-    # 액션 피드백이 옛 값을 계속 보여주지 않게 하려고 들고 다닙니다.
+    # 이번 주기에 실제로 본 관측. 마커를 놓쳤으면 None 입니다. 액션 피드백이
+    # 옛 값을 계속 보여주지 않게 하려고 들고 다닙니다.
     observation: tuple = None
 
     @property
-    def finished(self):
+    def finished(self) -> bool:
         return self.phase in (DockingPhase.DOCKED, DockingPhase.FAILED)
 
     @property
-    def succeeded(self):
+    def succeeded(self) -> bool:
         return self.phase is DockingPhase.DOCKED
 
 
 class DockingSession:
     """한 번의 도킹 시도. 액션 목표 하나에 세션 하나가 대응합니다."""
 
-    def __init__(self, gains=None, limits=None):
+    def __init__(self, gains: DockingGains = None, limits: SessionLimits = None):
         self.gains = gains or DockingGains()
         self.limits = limits or SessionLimits()
         self.phase = DockingPhase.SEARCHING
@@ -78,13 +77,19 @@ class DockingSession:
         self._aligned_since = None
         self._ever_seen = False
 
-    def step(self, elapsed, marker_age, observation, station_confirmed=False):
+    def step(
+        self,
+        elapsed: float,
+        marker_age: float,
+        observation,
+        station_confirmed: bool = False,
+    ) -> DockingStep:
         """다음 주행 명령과 단계를 계산합니다.
 
         Args:
             elapsed: 도킹 시작 후 경과 시간 (s)
             marker_age: 목표 마커를 마지막으로 본 뒤 경과 시간 (s).
-                        한 번도 못 봤으면 float('inf')
+                한 번도 못 봤으면 float('inf')
             observation: (거리 m, 좌우오차 px, 기울기 deg) 또는 None
             station_confirmed: 스테이션 홀 센서 접점 여부
         """
@@ -94,14 +99,14 @@ class DockingSession:
         if elapsed > self.limits.docking_timeout:
             return self._finish(DockingPhase.FAILED, "전체 시간 초과")
 
-        # 마커를 놓쳤으면 멈춥니다. 안 보이는 채로 계속 전진하면
-        # 스테이션을 들이받습니다.
+        # 마커를 놓쳤으면 멈춥니다. 안 보이는 채로 계속 전진하면 스테이션을
+        # 들이받습니다.
         if observation is None or marker_age > self.limits.marker_lost_timeout:
             self.phase = DockingPhase.SEARCHING
             self._aligned_since = None
 
-            # 한 번도 못 본 채로 탐색 제한을 넘겼으면 접습니다. 엉뚱한
-            # 자리에 도착했다는 뜻이라 더 기다려도 달라지지 않습니다.
+            # 한 번도 못 본 채 탐색 제한을 넘겼으면 접습니다. 엉뚱한 자리에
+            # 도착했다는 뜻이라 더 기다려도 달라지지 않습니다.
             if not self._ever_seen and elapsed > self.limits.search_timeout:
                 return self._finish(DockingPhase.FAILED, "마커를 찾지 못함")
 
@@ -113,7 +118,6 @@ class DockingSession:
         command = compute(distance, lateral, yaw, self.gains)
 
         if command.docked:
-            # 비전 기준으로는 정렬이 끝났습니다. 스테이션 접점을 기다립니다.
             if self._aligned_since is None:
                 self._aligned_since = elapsed
             waited = elapsed - self._aligned_since
@@ -132,7 +136,8 @@ class DockingSession:
                 self.phase, 0.0, 0.0, "스테이션 확인 대기", observation
             )
 
-        # 정렬이 풀렸으면 대기 타이머를 초기화합니다.
+        # 정렬이 풀렸으면 대기 타이머를 초기화합니다. 마커가 흔들려 잠깐
+        # 정렬됐다 풀린 것을 성공으로 치면 단자가 안 맞은 채로 끝납니다.
         self._aligned_since = None
         self.phase = (
             DockingPhase.ALIGNING if command.linear == 0.0 else DockingPhase.APPROACHING

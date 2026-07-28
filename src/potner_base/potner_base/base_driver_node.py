@@ -33,7 +33,7 @@ class BaseDriver(Node):
 
         self.declare_parameter("serial_port", "/dev/ttyUSB_ESP32")
         self.declare_parameter("baud_rate", 115200)
-        self.declare_parameter("wheel_diameter", 0.065)
+        self.declare_parameter("wheel_diameter", 0.075)
         self.declare_parameter("wheel_separation", 0.200)
         self.declare_parameter("counts_per_rev", 1440)
         self.declare_parameter("max_wheel_speed", 0.25)
@@ -68,9 +68,9 @@ class BaseDriver(Node):
         period = 1.0 / self.get_parameter("publish_rate").value
         self.create_timer(period, self._spin_once)
 
-        self.get_logger().info("base_driver 시작. 포트=%s" % self._port_name)
+        self.get_logger().info(f"base_driver 시작. 포트={self._port_name}")
 
-    # ------------------------------------------------------------------ 시리얼
+    # --- 시리얼 ---
 
     def _open_serial(self):
         self._port_name = self.get_parameter("serial_port").value
@@ -84,8 +84,8 @@ class BaseDriver(Node):
             return serial.Serial(self._port_name, baud, timeout=0.05)
         except Exception as exc:  # 포트 없음, 권한 없음 등
             self.get_logger().error(
-                "시리얼 포트 열기 실패 (%s): %s — 시뮬레이션 모드로 동작합니다."
-                % (self._port_name, exc)
+                f"시리얼 포트 열기 실패 ({self._port_name}): {exc} — "
+                "시뮬레이션 모드로 동작합니다."
             )
             return None
 
@@ -95,7 +95,7 @@ class BaseDriver(Node):
         try:
             self._serial.write(frame.encode("ascii"))
         except Exception as exc:
-            self.get_logger().error("시리얼 쓰기 실패: %s" % exc)
+            self.get_logger().error(f"시리얼 쓰기 실패: {exc}")
 
     def _read_feedback(self):
         """수신 버퍼에 쌓인 줄 중 가장 최신 프레임 하나를 돌려줍니다."""
@@ -111,13 +111,13 @@ class BaseDriver(Node):
                 except proto.ProtocolError as exc:
                     # 노이즈 한 줄로 노드를 죽이지 않습니다. throttle 로 로그 폭주 방지.
                     self.get_logger().warn(
-                        "프레임 버림: %s" % exc, throttle_duration_sec=2.0
+                        f"프레임 버림: {exc}", throttle_duration_sec=2.0
                     )
         except Exception as exc:
-            self.get_logger().error("시리얼 읽기 실패: %s" % exc)
+            self.get_logger().error(f"시리얼 읽기 실패: {exc}")
         return latest
 
-    # ------------------------------------------------------------------ 콜백
+    # --- 콜백 ---
 
     def _on_cmd_vel(self, msg: Twist):
         self._target = twist_to_wheel_speeds(msg.linear.x, msg.angular.z, self.cfg)
@@ -155,7 +155,7 @@ class BaseDriver(Node):
         self._last_feedback_time = now
         return dt if dt > 0.0 else None
 
-    # ------------------------------------------------------------------ 발행
+    # --- 발행 ---
 
     def _publish_odom(self, stamp):
         x, y, theta = self.odom.pose
@@ -206,7 +206,7 @@ class BaseDriver(Node):
         for side, millimeters in readings.items():
             msg = Range()
             msg.header.stamp = stamp.to_msg()
-            msg.header.frame_id = "bumper_%s_link" % side
+            msg.header.frame_id = f"bumper_{side}_link"
             msg.radiation_type = Range.INFRARED
             msg.field_of_view = 0.44  # VL53L0X 약 25도
             msg.min_range = 0.03

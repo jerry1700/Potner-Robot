@@ -112,7 +112,7 @@ class DockingServer(Node):
         self._rate = self.create_rate(1.0 / CONTROL_PERIOD)
         self.get_logger().info("docking_server 준비 완료 (액션: dock_to_station)")
 
-    # ------------------------------------------------------------------ 관측
+    # --- 관측 ---
 
     def _on_id(self, msg: Int32):
         self._visible_id = msg.data
@@ -133,7 +133,7 @@ class DockingServer(Node):
         """
         self._station_confirmed = msg.data
 
-    # ------------------------------------------------------------------ 액션
+    # --- 액션 ---
 
     def _on_goal(self, goal_request):
         if self._busy:
@@ -167,7 +167,7 @@ class DockingServer(Node):
         self._last_seen = None
         started = self.get_clock().now()
 
-        self.get_logger().info("도킹 시작 (마커 %d)" % marker_id)
+        self.get_logger().info(f"도킹 시작 (마커 {marker_id})")
 
         try:
             while rclpy.ok():
@@ -206,7 +206,7 @@ class DockingServer(Node):
 
         return self._result(False, "노드 종료", session)
 
-    # ------------------------------------------------------------------ 보조
+    # --- 보조 ---
 
     def _seconds_since(self, stamp):
         return (self.get_clock().now() - stamp).nanoseconds * 1e-9
@@ -242,7 +242,7 @@ class DockingServer(Node):
             result.final_distance = float(distance)
             result.final_yaw_error = float(yaw)
         level = self.get_logger().info if success else self.get_logger().warn
-        level("도킹 종료: %s" % message)
+        level(f"도킹 종료: {message}")
         return result
 
 

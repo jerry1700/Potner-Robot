@@ -54,7 +54,7 @@ class PersonDetector(Node):
             return None
 
         path = self.get_parameter("model_path").value
-        self.get_logger().info("YOLO 모델 로딩: %s" % path)
+        self.get_logger().info(f"YOLO 모델 로딩: {path}")
         model = YOLO(path)
 
         # TODO: 젯슨에서는 TensorRT 엔진으로 변환하면 추론이 크게 빨라집니다.
