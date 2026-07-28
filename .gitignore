@@ -32,6 +32,9 @@ build/
 install/
 log/
 
+# 외부 드라이버 소스 (각자 clone). README 설치 안내 참고
+src/ydlidar_ros2_driver/
+
 # PlatformIO (ESP32 펌웨어)
 .pio/
 .pioenvs/

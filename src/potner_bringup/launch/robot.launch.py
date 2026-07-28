@@ -26,6 +26,7 @@ def generate_launch_description():
 
     params = os.path.join(bringup_share, "config", "potner_params.yaml")
     twist_mux_params = os.path.join(bringup_share, "config", "twist_mux.yaml")
+    ydlidar_params = os.path.join(bringup_share, "config", "ydlidar.yaml")
     xacro_path = os.path.join(description_share, "urdf", "potner.urdf.xacro")
 
     use_camera = LaunchConfiguration("use_camera")
@@ -79,20 +80,20 @@ def generate_launch_description():
                 "image_size": [640, 480],
             }],
         ),
-        # TODO: YDLIDAR 드라이버는 apt에 없어 소스 빌드가 필요합니다.
-        #   git clone https://github.com/YDLIDAR/YDLidar-SDK
-        #   git clone https://github.com/YDLIDAR/ydlidar_ros2_driver
-        #   빌드 후 아래 주석을 해제하세요.
-        # Node(
-        #     package="ydlidar_ros2_driver",
-        #     executable="ydlidar_ros2_driver_node",
-        #     condition=IfCondition(use_lidar),
-        #     parameters=[{
-        #         "port": "/dev/ttyUSB_LIDAR",
-        #         "frame_id": "laser_frame",
-        #         "lidar_type": 1,
-        #     }],
-        # ),
+        # YDLIDAR 드라이버는 apt에 없어 소스 빌드가 필요합니다. 설치 방법은
+        # README 를 보세요. 반드시 humble 브랜치를 받아야 합니다.
+        #
+        # 드라이버가 제공하는 ydlidar_launch.py 대신 노드만 직접 띄웁니다.
+        # 그 launch 는 base_link -> laser_frame 을 2cm 로 발행해서 우리
+        # URDF(48.8cm)와 충돌합니다. 로봇 형상은 URDF 가 소유합니다.
+        Node(
+            package="ydlidar_ros2_driver",
+            executable="ydlidar_ros2_driver_node",
+            name="ydlidar_ros2_driver_node",
+            condition=IfCondition(use_lidar),
+            parameters=[ydlidar_params],
+            output="screen",
+        ),
 
         # ---- 인지
         Node(
