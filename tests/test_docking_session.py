@@ -134,6 +134,38 @@ def test_실패든_성공이든_끝나면_속도는_0이다():
         assert step.angular == 0.0
 
 
+def test_마커를_한_번도_못_보면_탐색_제한에서_포기한다():
+    """전체 제한만 두면 마커 없는 자리에서 90초를 서 있게 됩니다."""
+    s = session(search_timeout=15.0, docking_timeout=90.0)
+
+    step = s.step(elapsed=14.0, marker_age=float("inf"), observation=None)
+    assert step.phase is DockingPhase.SEARCHING
+
+    step = s.step(elapsed=15.1, marker_age=float("inf"), observation=None)
+    assert step.phase is DockingPhase.FAILED
+    assert "찾지 못함" in step.reason
+
+
+def test_한_번이라도_봤으면_탐색_제한에_걸리지_않는다():
+    """접근 중 잠깐 놓친 것과, 애초에 없는 것을 구분해야 합니다."""
+    s = session(search_timeout=15.0, docking_timeout=90.0)
+    s.step(elapsed=2.0, marker_age=0.0, observation=FAR)
+
+    step = s.step(elapsed=30.0, marker_age=10.0, observation=None)
+    assert step.phase is DockingPhase.SEARCHING
+    assert step.finished is False
+
+
+def test_마커를_놓친_주기의_관측은_비어_있다():
+    """피드백이 옛 값을 계속 보여주면 정상 동작으로 오해합니다."""
+    s = session()
+    seen = s.step(elapsed=1.0, marker_age=0.0, observation=FAR)
+    lost = s.step(elapsed=5.0, marker_age=9.0, observation=None)
+
+    assert seen.observation == FAR
+    assert lost.observation is None
+
+
 def test_마지막_관측값을_기억한다():
     """액션 결과에 최종 거리와 각도를 담기 위해 필요합니다."""
     s = session()

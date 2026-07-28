@@ -37,6 +37,11 @@ class SessionLimits:
     docking_timeout: float = 90.0  # 전체 제한. 무한 루프 방지
     confirm_timeout: float = 5.0  # 스테이션 접점을 기다리는 시간
 
+    # 목표 마커를 한 번도 못 본 채 이 시간이 지나면 포기합니다. 전체
+    # 제한만 두면 마커가 아예 없는 자리에서 90초를 서 있게 됩니다.
+    # 엉뚱한 곳에 도착했다는 뜻이므로 빨리 알려주는 게 낫습니다.
+    search_timeout: float = 15.0
+
     # 스테이션 홀 센서(A3144) 신호를 도킹 성공 조건으로 요구할지.
     # 스테이션이 아직 없으므로 기본값은 False 입니다. 스테이션이
     # 완성되면 True 로 바꿔 물리적 접점을 확인하게 하세요.
@@ -49,6 +54,9 @@ class DockingStep:
     linear: float
     angular: float
     reason: str
+    # 이번 주기에 실제로 본 관측. 마커를 놓쳤으면 None 입니다.
+    # 액션 피드백이 옛 값을 계속 보여주지 않게 하려고 들고 다닙니다.
+    observation: tuple = None
 
     @property
     def finished(self):
@@ -68,6 +76,7 @@ class DockingSession:
         self.phase = DockingPhase.SEARCHING
         self.last_observation = None
         self._aligned_since = None
+        self._ever_seen = False
 
     def step(self, elapsed, marker_age, observation, station_confirmed=False):
         """다음 주행 명령과 단계를 계산합니다.
@@ -90,8 +99,15 @@ class DockingSession:
         if observation is None or marker_age > self.limits.marker_lost_timeout:
             self.phase = DockingPhase.SEARCHING
             self._aligned_since = None
+
+            # 한 번도 못 본 채로 탐색 제한을 넘겼으면 접습니다. 엉뚱한
+            # 자리에 도착했다는 뜻이라 더 기다려도 달라지지 않습니다.
+            if not self._ever_seen and elapsed > self.limits.search_timeout:
+                return self._finish(DockingPhase.FAILED, "마커를 찾지 못함")
+
             return DockingStep(self.phase, 0.0, 0.0, "마커 유실")
 
+        self._ever_seen = True
         self.last_observation = observation
         distance, lateral, yaw = observation
         command = compute(distance, lateral, yaw, self.gains)
@@ -105,20 +121,26 @@ class DockingSession:
             if waited >= self.limits.confirm_timeout:
                 if self.limits.require_station_confirm:
                     return self._finish(
-                        DockingPhase.FAILED, "스테이션 접점 신호 없음"
+                        DockingPhase.FAILED, "스테이션 접점 신호 없음", observation
                     )
-                return self._finish(DockingPhase.DOCKED, "비전 정렬 완료")
+                return self._finish(
+                    DockingPhase.DOCKED, "비전 정렬 완료", observation
+                )
 
             self.phase = DockingPhase.CONFIRMING
-            return DockingStep(self.phase, 0.0, 0.0, "스테이션 확인 대기")
+            return DockingStep(
+                self.phase, 0.0, 0.0, "스테이션 확인 대기", observation
+            )
 
         # 정렬이 풀렸으면 대기 타이머를 초기화합니다.
         self._aligned_since = None
         self.phase = (
             DockingPhase.ALIGNING if command.linear == 0.0 else DockingPhase.APPROACHING
         )
-        return DockingStep(self.phase, command.linear, command.angular, command.reason)
+        return DockingStep(
+            self.phase, command.linear, command.angular, command.reason, observation
+        )
 
-    def _finish(self, phase, reason):
+    def _finish(self, phase, reason, observation=None):
         self.phase = phase
-        return DockingStep(phase, 0.0, 0.0, reason)
+        return DockingStep(phase, 0.0, 0.0, reason, observation)
