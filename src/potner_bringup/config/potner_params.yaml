@@ -38,6 +38,23 @@ mission_manager:
     temperature_celsius: 30.0
     evaluate_period: 2.0
     greeting_cooldown: 300.0    # 같은 사람에게 5분 내 재인사 방지 (s)
+    service_duration: 10.0      # 스테이션 서비스 대기 시간 (s)
+    docking_timeout: 90.0
+
+    # 지도가 없을 때 도킹만 따로 시험하기 위한 우회 스위치.
+    # true 면 Nav2 이동을 건너뛰고 바로 도킹 액션을 보냅니다.
+    skip_navigation: false
+
+    # 스테이션별 지도 좌표 [x, y, yaw(rad)]
+    # TODO: SLAM 으로 지도를 만든 뒤 실제 좌표로 채울 것.
+    #   RViz 에서 스테이션 앞 지점에 커서를 올리면 좌표가 보입니다.
+    #   전부 0 이면 "미설정"으로 보고 임무를 시작하지 않습니다.
+    #   (0 을 그대로 보내면 로봇이 지도 원점으로 달려갑니다)
+    station_poses:
+      charging: [0.0, 0.0, 0.0]
+      water: [0.0, 0.0, 0.0]
+      sunlight: [0.0, 0.0, 0.0]
+      wind: [0.0, 0.0, 0.0]
 
 docking_server:
   ros__parameters:
@@ -47,8 +64,14 @@ docking_server:
     approach_speed: 0.12     # 접근 속도 (m/s) — 식물이 흔들리지 않게 천천히
     max_angular: 0.8         # 각속도 상한 (rad/s)
     target_distance: 0.15    # 목표 정지 거리 (m)
-    marker_lost_timeout: 2.0
+    marker_lost_timeout: 2.0 # 이 시간 넘게 마커를 못 보면 정지
     docking_timeout: 90.0    # 이 시간 넘으면 포기 (무한루프 방지)
+    confirm_timeout: 5.0     # 스테이션 접점을 기다리는 시간
+
+    # 스테이션 A3144 홀 센서 신호를 성공 조건으로 요구할지.
+    # 스테이션이 아직 없으므로 false. 완성되면 true 로 바꿔서
+    # 물리적 접촉까지 확인하게 하세요.
+    require_station_confirm: false
 
 marker_detector:
   ros__parameters:
