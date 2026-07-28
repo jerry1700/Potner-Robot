@@ -20,7 +20,16 @@ from potner_perception.marker_pose import (
     CameraIntrinsics,
     create_detector,
     estimate_pose,
+    normalize_yaw,
 )
+
+
+def test_정면_기준_각도를_0_중심으로_접는다():
+    assert normalize_yaw(175.0) == pytest.approx(-5.0)
+    assert normalize_yaw(-175.0) == pytest.approx(5.0)
+    assert normalize_yaw(10.0) == pytest.approx(10.0)
+    # 이미 접힌 값을 다시 넣어도 그대로 (멱등)
+    assert normalize_yaw(normalize_yaw(-173.0)) == pytest.approx(7.0)
 
 
 def _draw_marker(dictionary_id, marker_id, side_px):
@@ -61,6 +70,40 @@ def test_스테이션_마커_4종을_모두_읽는다(marker_id):
 
     assert ids is not None, "마커를 하나도 못 찾았습니다"
     assert marker_id in ids.flatten()
+
+
+def test_정면_마커의_기울기가_0_근처로_나온다():
+    """실제 마커 이미지를 탐지해 자세까지 계산하는 통합 검증.
+
+    solvePnP 는 정면 마커에 대해 180도 근처를 돌려줍니다. 이걸 0 기준으로
+    접지 않으면 정렬 판정이 영원히 성립하지 않고, 근거리에서 각속도가
+    상한까지 잘못된 방향으로 나갑니다.
+
+    normalize_yaw 를 만들어두고 파이프라인에서 호출하지 않아 실기에서
+    -173도가 그대로 흘러나온 적이 있습니다. 단위 테스트만으로는 이런
+    연결 누락을 못 잡아서 여기서 통째로 확인합니다.
+    """
+    side, border = 300, 80
+    image = _draw_marker(DEFAULT_DICTIONARY, 1, side)
+    padded = cv2.copyMakeBorder(
+        image, border, border, border, border, cv2.BORDER_CONSTANT, value=255
+    )
+
+    corners, ids, _ = create_detector()(padded)
+    assert ids is not None and 1 in ids.flatten()
+
+    # 광학중심을 실제 이미지 중심에 맞춰야 합니다. 어긋나면 마커가 화면
+    # 중앙에서 벗어난 것으로 계산돼 원근 때문에 기울기가 섞여 나옵니다.
+    center = (side + border * 2) / 2.0
+    intrinsics = CameraIntrinsics(
+        focal_length_px=600.0, center_x=center, center_y=center
+    )
+    _distance, yaw_deg = estimate_pose(corners[0][0], intrinsics, marker_size=0.044)
+
+    assert abs(yaw_deg) < 15.0, (
+        "정면 마커인데 기울기가 %.1f도로 나왔습니다. "
+        "180도 기준 정규화가 빠진 것입니다." % yaw_deg
+    )
 
 
 def test_거리_추정이_핀홀_모델과_맞는다():

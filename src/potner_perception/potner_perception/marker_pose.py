@@ -118,4 +118,23 @@ def estimate_pose(corners, intrinsics=None, marker_size=DEFAULT_MARKER_SIZE):
     yaw_rad = np.arctan2(rotation[0, 2], rotation[2, 2])
     yaw_deg = float(np.degrees(yaw_rad))
 
-    return distance_m, yaw_deg
+    # 여기서 반드시 정규화해서 내보냅니다. 아래를 보세요.
+    return distance_m, normalize_yaw(yaw_deg)
+
+
+def normalize_yaw(yaw_deg):
+    """정면 기준 기울기를 0 중심으로 접습니다.
+
+    solvePnP 가 돌려주는 회전은 마커를 정면에서 볼 때 180도 근처입니다.
+    객체 좌표계는 Y축이 위, 영상 좌표계는 Y축이 아래라 X축 기준 180도
+    뒤집힘이 항상 끼기 때문입니다.
+
+    이 정규화를 빼먹으면 -173도 같은 값이 제어기로 흘러가서,
+    abs(yaw) < 10 정렬 판정이 영원히 성립하지 않고 근거리에서 각속도가
+    상한까지 잘못된 방향으로 나갑니다. 실제로 그렇게 한 번 당했습니다.
+    """
+    if yaw_deg > 90.0:
+        return yaw_deg - 180.0
+    if yaw_deg < -90.0:
+        return yaw_deg + 180.0
+    return yaw_deg
