@@ -23,6 +23,7 @@ setup(
         "console_scripts": [
             "person_detector = potner_perception.person_detector_node:main",
             "marker_detector = potner_perception.marker_detector_node:main",
+            "focal_calibrator = potner_perception.focal_calibrator_node:main",
         ],
     },
 )
