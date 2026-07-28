@@ -1,0 +1,14 @@
+# potner_llm 설정 예시
+# API 키는 코드/깃에 넣지 말고 환경변수(.env)로 주입:
+#   OPENAI_API_KEY=...   (또는 GMS_API_KEY)
+#   OPENAI_BASE_URL=...  (선택)
+#   OPENAI_MODEL=...     (선택)
+#   OPENAI_MAX_TOKENS=... (선택)
+
+llm:
+  enabled: true
+  provider: gms          # gms | openai | mock
+  model: gpt-4.1-nano    # 저비용 테스트. 필요시 gpt-5-nano 등
+  max_tokens: 200
+  api_key_env: OPENAI_API_KEY
+  base_url: https://gms.ssafy.io/gmsapi/api.openai.com/v1
