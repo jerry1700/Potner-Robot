@@ -44,6 +44,38 @@ class CameraIntrinsics:
 # 인쇄한 마커의 한 변 길이 (m). create_station_markers 로 뽑은 실물을 자로 재세요.
 DEFAULT_MARKER_SIZE = 0.05
 
+# beacon 이미지를 뽑을 때 쓴 사전. 바꾸면 기존 마커를 못 읽습니다.
+DEFAULT_DICTIONARY = cv2.aruco.DICT_6X6_250
+
+
+def create_detector(dictionary_id=DEFAULT_DICTIONARY):
+    """OpenCV 버전에 상관없이 동작하는 마커 탐지 함수를 돌려줍니다.
+
+    ArUco 파이썬 API는 OpenCV 4.7 에서 한 번 갈아엎어졌습니다.
+
+        4.7 이상   getPredefinedDictionary + ArucoDetector 객체
+        4.5 이하   Dictionary_get + detectMarkers 함수
+
+    젯팩 6 의 시스템 OpenCV 는 4.5.4 라 구버전 API 를 씁니다. 반면
+    개발용 PC 나 CI 서버는 pip 로 최신 버전을 깔기 때문에 신버전
+    API 를 씁니다. 양쪽에서 같은 코드가 돌아야 하므로 여기서 흡수합니다.
+
+    Returns:
+        gray 이미지를 받아 (corners, ids, rejected) 를 돌려주는 함수
+    """
+    if hasattr(cv2.aruco, "ArucoDetector"):
+        dictionary = cv2.aruco.getPredefinedDictionary(dictionary_id)
+        detector = cv2.aruco.ArucoDetector(dictionary, cv2.aruco.DetectorParameters())
+        return detector.detectMarkers
+
+    dictionary = cv2.aruco.Dictionary_get(dictionary_id)
+    parameters = cv2.aruco.DetectorParameters_create()
+
+    def detect(gray):
+        return cv2.aruco.detectMarkers(gray, dictionary, parameters=parameters)
+
+    return detect
+
 
 def estimate_pose(corners, intrinsics=None, marker_size=DEFAULT_MARKER_SIZE):
     """마커 네 꼭짓점으로 거리(m)와 좌우 기울기(deg)를 계산합니다.

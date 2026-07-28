@@ -15,15 +15,17 @@ from rclpy.qos import qos_profile_sensor_data
 from sensor_msgs.msg import Image
 from std_msgs.msg import Int32
 
-from potner_perception.marker_pose import CameraIntrinsics, estimate_pose
+from potner_perception.marker_pose import (
+    CameraIntrinsics,
+    create_detector,
+    estimate_pose,
+)
 
 try:
     import cv2
-    import cv2.aruco as aruco
     from cv_bridge import CvBridge
 except ImportError:
     cv2 = None
-    aruco = None
     CvBridge = None
 
 
@@ -57,12 +59,12 @@ class MarkerDetector(Node):
         self._id_pub = self.create_publisher(Int32, "perception/marker_id", 10)
 
     def _build_detector(self):
-        if aruco is None:
-            self.get_logger().warn("OpenCV aruco 미설치 — 탐지를 건너뜁니다.")
+        if cv2 is None:
+            self.get_logger().warn("OpenCV 미설치 — 탐지를 건너뜁니다.")
             return None
-        # legacy 코드와 같은 사전을 씁니다. beacon 이미지도 이 사전으로 뽑았습니다.
-        dictionary = aruco.getPredefinedDictionary(aruco.DICT_6X6_250)
-        return aruco.ArucoDetector(dictionary, aruco.DetectorParameters())
+        # OpenCV 4.5(젯팩 6 시스템)와 4.7 이상(개발 PC) 양쪽을 지원합니다.
+        self.get_logger().info("OpenCV %s 로 ArUco 탐지기 생성" % cv2.__version__)
+        return create_detector()
 
     def _on_image(self, msg: Image):
         if self._detector is None:
@@ -70,7 +72,7 @@ class MarkerDetector(Node):
 
         frame = self._bridge.imgmsg_to_cv2(msg, "bgr8")
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-        corners, ids, _ = self._detector.detectMarkers(gray)
+        corners, ids, _ = self._detector(gray)
 
         if ids is None or len(ids) == 0:
             self._id_pub.publish(Int32(data=-1))
