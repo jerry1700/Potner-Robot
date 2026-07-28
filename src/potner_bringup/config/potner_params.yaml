@@ -1,0 +1,68 @@
+# Potner 로봇 전체 파라미터.
+#
+# ★ TODO 표시된 값은 조립 후 자로 재서 바꿔야 합니다. 특히 바퀴 지름과
+#   축간거리가 틀리면 로봇이 지도에서 엉뚱한 곳으로 흘러갑니다.
+#   확정값(엔코더 CPR 등)은 부품 사양에서 나온 것이라 건드리지 마세요.
+
+base_driver:
+  ros__parameters:
+    serial_port: /dev/ttyUSB_ESP32   # udev 규칙으로 고정 (README 참고)
+    baud_rate: 115200
+
+    wheel_diameter: 0.065     # TODO 실측 (m)
+    wheel_separation: 0.200   # TODO 실측 (m) — 좌우 바퀴 중심 간 거리
+    counts_per_rev: 1440      # 확정 — FIT0403 출력축 CPR
+    max_wheel_speed: 0.25     # 안전 제한 (m/s). 이론 최대는 약 0.41
+
+    cmd_vel_timeout: 0.5      # 이 시간 동안 명령이 없으면 정지 (s)
+    publish_rate: 30.0        # odom 발행 주기 (Hz)
+
+safety:
+  ros__parameters:
+    scan_stop_distance: 0.25    # LiDAR 정지 거리 (m)
+    bumper_stop_distance: 0.12  # 범퍼 ToF 정지 거리 (m)
+    front_arc_deg: 60.0         # 정면으로 볼 각도 폭
+    clear_hysteresis: 0.08      # 해제 여유 (m) — 경계에서 깜빡임 방지
+    publish_rate: 20.0
+
+mission_manager:
+  ros__parameters:
+    # legacy/main.py 의 임계값을 그대로 옮겼습니다.
+    battery_percent: 20.0
+    moisture_percent: 30.0
+    light_lux: 200.0
+    temperature_celsius: 30.0
+    evaluate_period: 2.0
+    greeting_cooldown: 300.0    # 같은 사람에게 5분 내 재인사 방지 (s)
+
+docking_server:
+  ros__parameters:
+    # TODO: 실기에서 재튜닝. 진동하면 kp를 낮추고, 반응이 굼뜨면 올리세요.
+    kp_lateral: 0.0025       # 화면 좌우 오차(px) -> rad/s
+    kp_yaw: 0.017            # 마커 기울기(deg) -> rad/s
+    approach_speed: 0.12     # 접근 속도 (m/s) — 식물이 흔들리지 않게 천천히
+    max_angular: 0.8         # 각속도 상한 (rad/s)
+    target_distance: 0.15    # 목표 정지 거리 (m)
+    marker_lost_timeout: 2.0
+    docking_timeout: 90.0    # 이 시간 넘으면 포기 (무한루프 방지)
+
+marker_detector:
+  ros__parameters:
+    marker_size: 0.05        # TODO: 인쇄한 마커 한 변을 자로 잴 것 (m)
+    focal_length_px: 600.0   # TODO: BRIO 100 캘리브레이션 후 교체
+    image_width: 640
+    image_height: 480
+
+person_detector:
+  ros__parameters:
+    model_path: yolo11n.pt   # TODO: TensorRT 변환 후 yolo11n.engine 으로
+    confidence: 0.5
+    inference_period: 0.2    # 5Hz
+    device: cuda
+
+mqtt_bridge:
+  ros__parameters:
+    broker_host: localhost   # TODO: EC2 브로커 주소로 교체
+    broker_port: 1883
+    device_id: potner-01
+    publish_period: 10.0

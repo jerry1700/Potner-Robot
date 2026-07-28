@@ -1,0 +1,185 @@
+<?xml version="1.0"?>
+<!--
+  Potner 로봇 형상 정의.
+
+  Nav2와 AMCL은 TF 트리가 없으면 아예 뜨지 않습니다. 이 파일이 로봇의
+  각 부품이 서로 어디에 붙어 있는지를 알려줍니다.
+
+  ★ 아래 <xacro:property> 값들은 전부 임시입니다. 조립 후 자로 재서
+    실측값으로 바꾸세요. 특히 lidar_height 와 wheel_separation 이 틀리면
+    지도가 뒤틀리고 로봇이 제자리를 못 찾습니다.
+-->
+<robot name="potner" xmlns:xacro="http://www.ros.org/wiki/xacro">
+
+  <!-- ===== 실측 필요 (TODO) ===================================== -->
+  <xacro:property name="wheel_diameter"    value="0.065"/>  <!-- 구동 바퀴 지름 -->
+  <xacro:property name="wheel_width"       value="0.026"/>
+  <xacro:property name="wheel_separation"  value="0.200"/>  <!-- 좌우 바퀴 중심 간 거리 -->
+  <xacro:property name="body_diameter"     value="0.240"/>  <!-- 본체 외경 -->
+  <xacro:property name="body_height"       value="0.180"/>
+  <xacro:property name="base_clearance"    value="0.015"/>  <!-- 섀시 바닥 높이 -->
+
+  <!-- ★ LiDAR는 식물 위 폴 꼭대기에 있습니다. 이 높이가 정확해야
+       스캔 데이터가 올바른 위치에 찍힙니다. 바닥부터 LiDAR 회전
+       중심까지 재세요. -->
+  <xacro:property name="lidar_height"      value="0.520"/>
+  <xacro:property name="camera_height"     value="0.130"/>
+  <xacro:property name="camera_forward"    value="0.110"/>
+  <xacro:property name="bumper_height"     value="0.040"/>
+  <xacro:property name="bumper_forward"    value="0.115"/>
+  <xacro:property name="bumper_offset_y"   value="0.060"/>
+  <!-- =========================================================== -->
+
+  <xacro:property name="wheel_radius" value="${wheel_diameter / 2.0}"/>
+
+  <material name="ivory"><color rgba="0.94 0.92 0.86 1.0"/></material>
+  <material name="dark"> <color rgba="0.15 0.15 0.17 1.0"/></material>
+  <material name="wood"> <color rgba="0.76 0.67 0.51 1.0"/></material>
+
+  <!-- 바닥에 투영된 기준점. Nav2가 로봇의 발자국으로 삼습니다. -->
+  <link name="base_footprint"/>
+
+  <joint name="base_joint" type="fixed">
+    <parent link="base_footprint"/>
+    <child  link="base_link"/>
+    <origin xyz="0 0 ${wheel_radius}" rpy="0 0 0"/>
+  </joint>
+
+  <!-- 로봇 본체. 오도메트리의 기준 좌표계입니다. -->
+  <link name="base_link">
+    <visual>
+      <origin xyz="0 0 ${body_height/2 - wheel_radius + base_clearance}"/>
+      <geometry><cylinder radius="${body_diameter/2}" length="${body_height}"/></geometry>
+      <material name="ivory"/>
+    </visual>
+    <collision>
+      <origin xyz="0 0 ${body_height/2 - wheel_radius + base_clearance}"/>
+      <geometry><cylinder radius="${body_diameter/2}" length="${body_height}"/></geometry>
+    </collision>
+    <inertial>
+      <mass value="3.0"/>  <!-- TODO: 완성 후 실측 -->
+      <inertia ixx="0.02" ixy="0" ixz="0" iyy="0.02" iyz="0" izz="0.03"/>
+    </inertial>
+  </link>
+
+  <!-- ===== 구동 바퀴 =========================================== -->
+  <!-- base_driver 노드가 발행하는 joint_states 의 이름과 반드시 일치해야
+       RViz에서 바퀴가 굴러가는 게 보입니다. -->
+  <xacro:macro name="drive_wheel" params="side reflect">
+    <link name="${side}_wheel_link">
+      <visual>
+        <origin rpy="${pi/2} 0 0"/>
+        <geometry><cylinder radius="${wheel_radius}" length="${wheel_width}"/></geometry>
+        <material name="dark"/>
+      </visual>
+      <collision>
+        <origin rpy="${pi/2} 0 0"/>
+        <geometry><cylinder radius="${wheel_radius}" length="${wheel_width}"/></geometry>
+      </collision>
+      <inertial>
+        <mass value="0.2"/>
+        <inertia ixx="0.0002" ixy="0" ixz="0" iyy="0.0002" iyz="0" izz="0.0003"/>
+      </inertial>
+    </link>
+
+    <joint name="${side}_wheel_joint" type="continuous">
+      <parent link="base_link"/>
+      <child  link="${side}_wheel_link"/>
+      <origin xyz="0 ${reflect * wheel_separation / 2} 0"/>
+      <axis xyz="0 1 0"/>
+    </joint>
+  </xacro:macro>
+
+  <xacro:drive_wheel side="left"  reflect="1"/>
+  <xacro:drive_wheel side="right" reflect="-1"/>
+
+  <!-- ===== 보조 바퀴(캐스터) ==================================== -->
+  <!-- 캐스터는 1개(삼각 지지)를 권합니다. 앞뒤 2개면 바닥이 고르지
+       않을 때 시소처럼 흔들리며 구동륜이 헛돌아 엔코더가 틀어집니다. -->
+  <link name="caster_link">
+    <visual>
+      <geometry><sphere radius="${wheel_radius * 0.5}"/></geometry>
+      <material name="dark"/>
+    </visual>
+    <collision>
+      <geometry><sphere radius="${wheel_radius * 0.5}"/></geometry>
+    </collision>
+    <inertial>
+      <mass value="0.05"/>
+      <inertia ixx="1e-5" ixy="0" ixz="0" iyy="1e-5" iyz="0" izz="1e-5"/>
+    </inertial>
+  </link>
+
+  <joint name="caster_joint" type="fixed">
+    <parent link="base_link"/>
+    <child  link="caster_link"/>
+    <origin xyz="${-body_diameter/2 + 0.03} 0 ${-wheel_radius * 0.5}"/>
+  </joint>
+
+  <!-- ===== LiDAR (폴 위) ======================================= -->
+  <link name="pole_link">
+    <visual>
+      <origin xyz="0 0 ${(lidar_height - wheel_radius) / 2}"/>
+      <geometry><cylinder radius="0.012" length="${lidar_height - wheel_radius}"/></geometry>
+      <material name="wood"/>
+    </visual>
+  </link>
+
+  <joint name="pole_joint" type="fixed">
+    <parent link="base_link"/>
+    <child  link="pole_link"/>
+    <origin xyz="0 0 0"/>
+  </joint>
+
+  <link name="laser_frame">
+    <visual>
+      <geometry><cylinder radius="0.038" length="0.041"/></geometry>
+      <material name="dark"/>
+    </visual>
+  </link>
+
+  <joint name="laser_joint" type="fixed">
+    <parent link="base_link"/>
+    <child  link="laser_frame"/>
+    <origin xyz="0 0 ${lidar_height - wheel_radius}" rpy="0 0 0"/>
+  </joint>
+
+  <!-- ===== 카메라 ============================================== -->
+  <link name="camera_link">
+    <visual>
+      <geometry><box size="0.020 0.070 0.020"/></geometry>
+      <material name="dark"/>
+    </visual>
+  </link>
+
+  <joint name="camera_joint" type="fixed">
+    <parent link="base_link"/>
+    <child  link="camera_link"/>
+    <origin xyz="${camera_forward} 0 ${camera_height - wheel_radius}"/>
+  </joint>
+
+  <!-- 광학 좌표계. 영상 처리 쪽은 z가 앞을 보는 규약을 씁니다. -->
+  <link name="camera_optical_frame"/>
+  <joint name="camera_optical_joint" type="fixed">
+    <parent link="camera_link"/>
+    <child  link="camera_optical_frame"/>
+    <origin rpy="${-pi/2} 0 ${-pi/2}"/>
+  </joint>
+
+  <!-- ===== 범퍼 ToF ============================================ -->
+  <!-- LiDAR가 폴 위에 있어 스캔 평면 아래가 통째로 사각지대입니다.
+       문턱과 슬리퍼를 보려면 낮은 곳에 눈이 하나 더 필요합니다. -->
+  <xacro:macro name="bumper" params="side reflect">
+    <link name="bumper_${side}_link"/>
+    <joint name="bumper_${side}_joint" type="fixed">
+      <parent link="base_link"/>
+      <child  link="bumper_${side}_link"/>
+      <origin xyz="${bumper_forward} ${reflect * bumper_offset_y} ${bumper_height - wheel_radius}"
+              rpy="0 0 ${reflect * 0.35}"/>
+    </joint>
+  </xacro:macro>
+
+  <xacro:bumper side="left"  reflect="1"/>
+  <xacro:bumper side="right" reflect="-1"/>
+
+</robot>

@@ -33,6 +33,7 @@ nvidia-cudss-cu12==0.8.0.10
 nvidia-ml-py==13.610.43
 opencv-contrib-python==5.0.0.93
 packaging==26.2
+paho-mqtt==2.1.0
 pandas==2.3.3
 pillow==12.3.0
 polars==1.42.1
