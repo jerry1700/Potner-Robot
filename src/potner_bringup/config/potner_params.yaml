@@ -48,8 +48,16 @@ docking_server:
 
 marker_detector:
   ros__parameters:
-    marker_size: 0.05        # TODO: 인쇄한 마커 한 변을 자로 잴 것 (m)
-    focal_length_px: 600.0   # TODO: BRIO 100 캘리브레이션 후 교체
+    # 인쇄물 실측값 (검은 사각형 바깥 테두리 한 변 4.4cm).
+    # 마커를 다시 인쇄하면 반드시 다시 재서 고치세요. 이 값이 틀리면
+    # 거리가 그 비율만큼 통째로 어긋납니다.
+    marker_size: 0.044
+
+    # TODO: focal_calibrator 로 보정 후 교체할 것.
+    #   ros2 run potner_perception focal_calibrator \
+    #       --ros-args -p true_distance:=0.5
+    focal_length_px: 600.0
+
     image_width: 640
     image_height: 480
 
