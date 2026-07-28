@@ -90,29 +90,72 @@ colcon build --symlink-install
 source install/setup.bash
 ```
 
-### 3. USB 장치 이름 고정 (중요)
+### 3. LiDAR 드라이버 설치
 
-LiDAR와 ESP32가 **둘 다 `/dev/ttyUSB*`** 로 잡힙니다. 꽂는 순서나 부팅
-타이밍에 따라 번호가 바뀌어서, 어느 날 갑자기 LiDAR 자리에 모터 명령이
-날아갑니다. 시리얼 번호로 이름을 고정하세요.
+apt에 없어서 소스 빌드가 필요합니다. **반드시 `humble` 브랜치**를 받으세요.
+기본 `master` 브랜치는 Foxy 시절 코드라 `declare_parameter` API가 바뀌어
+Humble에서 빌드가 실패합니다.
 
 ```bash
-# 먼저 각 장치의 정보를 확인
-udevadm info -a -n /dev/ttyUSB0 | grep -E 'idVendor|idProduct|serial' | head -5
+# SDK
+git clone https://github.com/YDLIDAR/YDLidar-SDK.git ~/YDLidar-SDK
+mkdir -p ~/YDLidar-SDK/build && cd ~/YDLidar-SDK/build
+cmake .. && make -j4 && sudo make install && sudo ldconfig
+
+# ROS 2 드라이버 (humble 브랜치!)
+cd ~/potner_ws/src
+git clone -b humble https://github.com/YDLIDAR/ydlidar_ros2_driver.git
+cd ~/potner_ws && colcon build --packages-select ydlidar_ros2_driver
+
+# udev 등록 (/dev/ydlidar 심볼릭 링크 생성)
+cd ~/potner_ws/src/ydlidar_ros2_driver/startup && sudo sh initenv.sh
+```
+
+`src/ydlidar_ros2_driver/` 는 `.gitignore` 에 있습니다. 외부 코드라 우리
+저장소에 넣지 않고 각자 받습니다.
+
+> **⚠️ `ydlidar_launch.py` 는 쓰지 마세요.**
+> 그 launch는 `base_link → laser_frame` 을 2cm로 발행하는데, 우리 URDF는
+> 폴 높이를 반영해 48.8cm로 발행합니다. 둘 다 켜면 같은 변환이 두 개
+> 생겨 SLAM이 스캔 위치를 잡지 못합니다. `robot.launch.py` 가 드라이버
+> 노드만 띄우고 파라미터는 `config/ydlidar.yaml` 로 넘깁니다.
+
+동작 확인 (X4 Pro 기준 약 11Hz):
+
+```bash
+ros2 launch potner_bringup robot.launch.py
+ros2 topic hz /scan     # 다른 터미널
+```
+
+### 4. USB 장치 이름 고정 (중요)
+
+LiDAR와 ESP32가 **둘 다 `/dev/ttyUSB*`** 로 잡히고, 둘 다 CP210x 칩을
+씁니다. 꽂는 순서나 부팅 타이밍에 따라 번호가 바뀌어서, 어느 날 갑자기
+LiDAR 자리로 모터 명령이 날아갑니다.
+
+LiDAR는 3단계의 `initenv.sh` 가 `/dev/ydlidar` 를 만들어줍니다. **ESP32는
+직접 등록**해야 하는데, 두 장치의 벤더 ID가 같으므로 반드시 **시리얼 번호**로
+구분해야 합니다.
+
+```bash
+# ESP32만 꽂은 상태에서 시리얼 번호 확인
+udevadm info -a -n /dev/ttyUSB0 | grep -E 'idVendor|serial' | head -4
 ```
 
 `/etc/udev/rules.d/99-potner.rules` 를 만들고:
 
 ```
 SUBSYSTEM=="tty", ATTRS{idVendor}=="10c4", ATTRS{serial}=="<ESP32 시리얼>", SYMLINK+="ttyUSB_ESP32"
-SUBSYSTEM=="tty", ATTRS{idVendor}=="10c4", ATTRS{serial}=="<LiDAR 시리얼>", SYMLINK+="ttyUSB_LIDAR"
 ```
 
 ```bash
 sudo udevadm control --reload-rules && sudo udevadm trigger
 ```
 
-### 4. 단계별로 띄우기
+`config/potner_params.yaml` 의 `base_driver.serial_port` 가 이 이름을
+씁니다.
+
+### 5. 단계별로 띄우기
 
 한 번에 다 켜면 무엇이 고장났는지 알 수 없습니다. 순서대로 확인하세요.
 
@@ -133,7 +176,7 @@ ros2 run nav2_map_server map_saver_cli -f ~/potner_ws/maps/home
 ros2 launch potner_bringup nav2.launch.py map:=$HOME/potner_ws/maps/home.yaml
 ```
 
-### 5. ESP32 펌웨어
+### 6. ESP32 펌웨어
 
 `src/potner_firmware/README.md` 참고. **바퀴를 공중에 띄운 채로** 첫
 동작을 확인하세요.
@@ -179,8 +222,8 @@ ROS 2 없이 돌아갑니다. 젠킨스 CI가 이 테스트와 flake8 문법 검
 
 ## 다음 작업
 
+- [x] YDLIDAR 드라이버 연동 — `/scan` 약 11Hz 확인
 - [ ] ESP32 펌웨어 실기 검증 및 PID 튜닝
-- [ ] YDLIDAR 드라이버 소스 빌드 후 `robot.launch.py` 주석 해제
 - [ ] `potner_msgs` 빌드 후 `DockToStation` 액션 서버 연결
 - [ ] 스테이션별 지도 좌표 등록 (`mission_manager` 의 `_start_mission`)
 - [ ] YOLO TensorRT 변환 (`yolo export format=engine`)
