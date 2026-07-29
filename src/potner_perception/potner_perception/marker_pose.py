@@ -20,16 +20,21 @@ DEFAULT_MARKER_SIZE = 0.044
 # beacon 이미지를 뽑을 때 쓴 사전. 바꾸면 기존 마커를 못 읽습니다.
 DEFAULT_DICTIONARY = cv2.aruco.DICT_6X6_250
 
+# focal_calibrator 로 실측한 값 (BRIO 100, 640x480, 2026-07-28).
+# 카메라나 해상도를 바꾸면 다시 재세요. 이 값이 틀리면 거리뿐 아니라
+# solvePnP 가 내는 기울기까지 어긋나 정렬 판정이 흔들립니다.
+#
+# 숫자를 여러 곳에 적으면 한쪽만 고쳐서 어긋납니다. 노드의 파라미터
+# 기본값도 이 상수를 참조하고, potner_params.yaml 과 일치하는지는
+# tests/test_config_consistency.py 가 확인합니다.
+DEFAULT_FOCAL_LENGTH_PX = 876.4
+
 
 @dataclass
 class CameraIntrinsics:
-    """카메라 내부 파라미터.
+    """카메라 내부 파라미터."""
 
-    TODO: focal_calibrator 로 보정할 것. 아래 기본값은 추정치라 거리 오차가
-    있습니다. 도킹 정밀도가 안 나오면 여기가 원인일 가능성이 큽니다.
-    """
-
-    focal_length_px: float = 600.0
+    focal_length_px: float = DEFAULT_FOCAL_LENGTH_PX
     center_x: float = 320.0
     center_y: float = 240.0
 
