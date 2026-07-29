@@ -51,6 +51,8 @@ def node_defaults(package, module, node_name):
 
 NODES = [
     ("base_driver", "potner_base", "base_driver_node"),
+    ("plant_sensors", "potner_base", "plant_sensors_node"),
+    ("speaker", "potner_base", "speaker_node"),
     ("safety", "potner_mission", "safety_node"),
     ("mission_manager", "potner_mission", "mission_manager_node"),
     ("docking_server", "potner_docking", "docking_server_node"),
