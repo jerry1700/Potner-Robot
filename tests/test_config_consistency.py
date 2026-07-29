@@ -23,7 +23,7 @@ import yaml
 from potner_base.kinematics import DriveConfig
 from potner_docking.approach_controller import DockingGains
 from potner_mission.priority import Thresholds
-from potner_perception.marker_pose import DEFAULT_MARKER_SIZE
+from potner_perception.marker_pose import DEFAULT_FOCAL_LENGTH_PX, DEFAULT_MARKER_SIZE
 
 REPO = Path(__file__).resolve().parent.parent
 PARAMS = REPO / "src" / "potner_bringup" / "config" / "potner_params.yaml"
@@ -43,7 +43,13 @@ def node_defaults(package, module, node_name):
     pattern = r'declare_parameter\(\s*"([^"]+)",\s*([^,)]+?)\s*\)'
     for name, literal in re.findall(pattern, source):
         try:
-            defaults[name] = eval(literal, {"DEFAULT_MARKER_SIZE": DEFAULT_MARKER_SIZE})
+            defaults[name] = eval(
+                literal,
+                {
+                    "DEFAULT_MARKER_SIZE": DEFAULT_MARKER_SIZE,
+                    "DEFAULT_FOCAL_LENGTH_PX": DEFAULT_FOCAL_LENGTH_PX,
+                },
+            )
         except (SyntaxError, NameError, ValueError):
             continue  # 표현식으로 된 기본값은 대조 대상이 아닙니다
     return defaults
@@ -117,6 +123,20 @@ def test_임무_임계값이_설정파일과_일치한다():
 def test_마커_크기가_설정파일과_일치한다():
     params = load_params()["marker_detector"]["ros__parameters"]
     assert DEFAULT_MARKER_SIZE == pytest.approx(params["marker_size"])
+
+
+def test_초점거리가_설정파일과_일치한다():
+    """보정한 값이 yaml 과 코드 기본값 두 곳에 있습니다.
+
+    한쪽만 고치면 launch 로 띄울 때는 멀쩡하고 ros2 run 으로 노드만 띄울
+    때만 거리가 틀어져서, 원인을 찾기 어렵습니다.
+    """
+    from potner_perception.marker_pose import CameraIntrinsics
+
+    params = load_params()["marker_detector"]["ros__parameters"]
+    assert CameraIntrinsics().focal_length_px == pytest.approx(
+        params["focal_length_px"]
+    )
 
 
 def test_엔코더_분해능은_부품_사양값이다():
