@@ -137,5 +137,11 @@ mqtt_bridge:
   ros__parameters:
     broker_host: localhost   # TODO: EC2 브로커 주소로 교체
     broker_port: 1883
-    device_id: potner-01
-    publish_period: 10.0
+
+    # 서버가 기기를 구분하는 값. 토픽 경로에도 그대로 들어갑니다.
+    #   potner/device/jetson-01/sensor/telemetry
+    #   potner/device/jetson-01/status/heartbeat
+    device_id: jetson-01
+
+    publish_period: 10.0     # 센서값 전송 주기 (s)
+    heartbeat_period: 30.0   # 살아있음 신호 주기 (s)
