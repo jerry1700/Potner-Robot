@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
+import time
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
@@ -11,6 +13,12 @@ from .prompts import SYSTEM_PLANT
 from .tools import TOOL_DEFINITIONS, ToolHub
 
 GMS_OPENAI_BASE_URL = "https://gms.ssafy.io/gmsapi/api.openai.com/v1"
+
+# 429(rate limit)/5xx(서버 오류)는 재시도하면 성공할 가능성이 있는 오류.
+# 401/403(인증) 등은 재시도해도 결과가 같으므로 제외.
+RETRYABLE_HTTP_STATUS = {429, 500, 502, 503, 504}
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -44,6 +52,8 @@ class LlmClient:
     base_url: str
     enabled: bool = True
     max_tokens: int = 256
+    max_retries: int = 2
+    retry_backoff_seconds: float = 0.5
 
     def available(self) -> bool:
         if not self.enabled:
@@ -134,21 +144,81 @@ class LlmClient:
             body["tools"] = tools
             body["tool_choice"] = "auto"
 
-        req = urllib.request.Request(
-            url,
-            data=json.dumps(body).encode("utf-8"),
-            headers={
-                "Content-Type": "application/json",
-                "Authorization": f"Bearer {self.api_key}",
-            },
-            method="POST",
-        )
-        try:
-            with urllib.request.urlopen(req, timeout=60) as resp:
-                return json.loads(resp.read().decode("utf-8"))
-        except urllib.error.HTTPError as exc:
-            detail = exc.read().decode("utf-8", errors="replace")
-            raise RuntimeError(f"LLM HTTP {exc.code}: {detail}") from exc
+        req_body = json.dumps(body).encode("utf-8")
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {self.api_key}",
+        }
+
+        attempt = 0
+        while True:
+            req = urllib.request.Request(url, data=req_body, headers=headers, method="POST")
+            try:
+                with urllib.request.urlopen(req, timeout=60) as resp:
+                    raw_text = resp.read().decode("utf-8")
+            except urllib.error.HTTPError as exc:
+                detail = exc.read().decode("utf-8", errors="replace")
+                if attempt < self.max_retries and exc.code in RETRYABLE_HTTP_STATUS:
+                    delay = self.retry_backoff_seconds * (2**attempt)
+                    logger.warning(
+                        "LLM HTTP %d, retrying in %.1fs (attempt %d/%d): %s",
+                        exc.code,
+                        delay,
+                        attempt + 1,
+                        self.max_retries,
+                        detail,
+                    )
+                    time.sleep(delay)
+                    attempt += 1
+                    continue
+                logger.error("LLM HTTP %d (giving up): %s", exc.code, detail)
+                raise RuntimeError(f"LLM HTTP {exc.code}: {detail}") from exc
+            except urllib.error.URLError as exc:
+                if attempt < self.max_retries:
+                    delay = self.retry_backoff_seconds * (2**attempt)
+                    logger.warning(
+                        "LLM connection error, retrying in %.1fs (attempt %d/%d): %s",
+                        delay,
+                        attempt + 1,
+                        self.max_retries,
+                        exc.reason,
+                    )
+                    time.sleep(delay)
+                    attempt += 1
+                    continue
+                logger.error("LLM connection error (giving up): %s", exc.reason)
+                raise RuntimeError(f"LLM connection error: {exc.reason}") from exc
+
+            try:
+                data = json.loads(raw_text)
+            except json.JSONDecodeError as exc:
+                # 게이트웨이가 아주 가끔 200 OK인데 응답 바디가 깨져서 오는 경우가
+                # 있다(중간 프록시/네트워크 문제로 추정). HTTP 오류와 동일하게
+                # 재시도 대상으로 취급한다 - 재전송하면 보통 정상 응답이 온다.
+                if attempt < self.max_retries:
+                    delay = self.retry_backoff_seconds * (2**attempt)
+                    logger.warning(
+                        "LLM 응답 JSON 파싱 실패, %.1fs 후 재시도 (attempt %d/%d): %s | body[:200]=%r",
+                        delay,
+                        attempt + 1,
+                        self.max_retries,
+                        exc,
+                        raw_text[:200],
+                    )
+                    time.sleep(delay)
+                    attempt += 1
+                    continue
+                logger.error(
+                    "LLM 응답 JSON 파싱 실패 (giving up): %s | body[:200]=%r", exc, raw_text[:200]
+                )
+                raise RuntimeError(f"LLM response JSON parse error: {exc}") from exc
+
+            usage = data.get("usage")
+            if usage:
+                logger.info(
+                    "LLM call ok model=%s usage=%s (attempt %d)", self.model, usage, attempt + 1
+                )
+            return data
 
 
 def create_llm_client(config: dict[str, Any]) -> LlmClient:
@@ -174,6 +244,10 @@ def create_llm_client(config: dict[str, Any]) -> LlmClient:
     model = os.environ.get("OPENAI_MODEL") or str(llm.get("model", default_model))
     base_url = os.environ.get("OPENAI_BASE_URL") or str(llm.get("base_url", default_base))
     max_tokens = int(os.environ.get("OPENAI_MAX_TOKENS") or llm.get("max_tokens", 256))
+    max_retries = int(os.environ.get("OPENAI_MAX_RETRIES") or llm.get("max_retries", 2))
+    retry_backoff_seconds = float(
+        os.environ.get("OPENAI_RETRY_BACKOFF_SECONDS") or llm.get("retry_backoff_seconds", 0.5)
+    )
 
     return LlmClient(
         provider=provider,
@@ -182,6 +256,8 @@ def create_llm_client(config: dict[str, Any]) -> LlmClient:
         base_url=base_url,
         enabled=bool(llm.get("enabled", True)),
         max_tokens=max_tokens,
+        max_retries=max_retries,
+        retry_backoff_seconds=retry_backoff_seconds,
     )
 
 
