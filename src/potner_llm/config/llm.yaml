@@ -1,0 +1,32 @@
+# potner_llm 설정 예시
+# API 키는 코드/깃에 넣지 말고 환경변수(.env)로 주입:
+#   GMS_API_KEY=...      (권장 — plant-robot-chat 웹 테스트 앱과 같은 변수명/값을 공유한다)
+#   OPENAI_API_KEY=...   (GMS_API_KEY보다 이 이름이 우선 적용됨)
+#   OPENAI_BASE_URL=...  (선택)
+#   OPENAI_MODEL=...     (선택)
+#   OPENAI_MAX_TOKENS=... (선택)
+#   OPENAI_MAX_RETRIES=...            (선택, 429/5xx 재시도 횟수)
+#   OPENAI_RETRY_BACKOFF_SECONDS=...  (선택, 재시도 대기 시간의 기준값. 2배씩 증가)
+
+llm:
+  enabled: true
+  provider: gms          # gms | openai | mock
+  model: gpt-4.1-nano    # 저비용 테스트. 필요시 gpt-5-nano 등
+  max_tokens: 200
+  max_retries: 2
+  retry_backoff_seconds: 0.5
+  api_key_env: OPENAI_API_KEY
+  base_url: https://gms.ssafy.io/gmsapi/api.openai.com/v1
+
+# 대화 이력 저장/복원 설정.
+# 한 대화가 끝나면(DialogueService.end_conversation()) 여기 저장하고,
+# 다음 대화 시작 시(DialogueService 생성) 여기서 불러와 이어간다.
+# base_url은 코드/깃에 넣지 말고 CONVERSATION_BASE_URL 환경변수로 주입 가능.
+conversation:
+  backend: file            # file | http (http = Spring 백엔드 등 실제 서버)
+  session_id: potner-01    # mqtt_bridge의 device_id와 맞추면 기기별 구분이 쉬움
+  file_path: ""            # backend=file일 때. 비워두면 호출자의 default_dir 사용
+                            # (cli.py는 src/potner_llm/data/conversation_history.json).
+                            # 상대경로를 직접 쓰면 실행한 위치(cwd) 기준이 되니 주의.
+  base_url: ""              # backend=http일 때 예: http://localhost:8080/api
+  timeout_seconds: 10

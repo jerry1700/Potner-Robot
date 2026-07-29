@@ -9,6 +9,9 @@ env/
 .venv/
 .env/
 
+# Secrets
+.env
+
 # IDE / Editor folders
 .vscode/
 .idea/
@@ -53,3 +56,6 @@ src/ydlidar_ros2_driver/
 # Generated images / data
 # If you don't want to track generated markers, uncomment the line below
 # marker_id_*.png
+
+# potner_llm 로컬 CLI 실행 시 쌓이는 대화 이력/이벤트 로그 (사람마다 다름, 공유 안 함)
+src/potner_llm/data/

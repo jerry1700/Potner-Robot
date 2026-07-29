@@ -1,0 +1,17 @@
+node_modules/
+.next/
+out/
+build/
+dist/
+
+# 환경변수 (API 키) — 절대 커밋 금지
+.env.local
+.env*.local
+
+# 로그 / 캐시
+*.log
+.eslintcache
+next-env.d.ts
+tsconfig.tsbuildinfo
+
+.DS_Store
