@@ -18,6 +18,8 @@ setup(
     description="식물 로봇 LLM 클라이언트·프롬프트·툴 허브 (SSAFY GMS / OpenAI 호환)",
     license="MIT",
     entry_points={
-        "console_scripts": [],
+        "console_scripts": [
+            "potner_llm_chat = potner_llm.cli:main",
+        ],
     },
 )
