@@ -11,7 +11,9 @@ import pytest
 
 from potner_bridge.telemetry import (
     ROBOT_SENSOR_TYPES,
+    ROBOT_STATES,
     UNIT_FOR_TYPE,
+    RobotState,
     SensorType,
     SensorUnit,
     heartbeat_message,
@@ -20,6 +22,8 @@ from potner_bridge.telemetry import (
     parse_sensor_message,
     sensor_message,
     sensor_topic,
+    state_message,
+    state_topic,
 )
 
 MOMENT = datetime(2026, 7, 23, 8, 0, 0, tzinfo=timezone.utc)
@@ -119,6 +123,39 @@ def test_로봇이_발행하는_종류는_세_가지다():
         SensorType.SOIL_MOISTURE,
         SensorType.ILLUMINANCE,
         SensorType.BATTERY,
+    }
+
+
+def test_상태_메시지가_명세와_일치한다():
+    payload = json.loads(
+        state_message("jetson-01", RobotState.DOCKING, MOMENT, "uuid-4")
+    )
+
+    assert payload == {
+        "messageId": "uuid-4",
+        "deviceId": "jetson-01",
+        "state": "DOCKING",
+        "changedAt": "2026-07-23T08:00:00Z",
+    }
+
+
+def test_없는_상태는_거부한다():
+    with pytest.raises(ValueError, match="상태"):
+        state_message("jetson-01", "CHARGING", MOMENT)
+
+    with pytest.raises(ValueError):
+        state_message("jetson-01", "idle", MOMENT)  # 소문자
+
+
+def test_상태_목록이_임무_상태_머신과_일치한다():
+    """mission_manager 의 MissionState 이름을 그대로 실어 보냅니다.
+    한쪽만 바꾸면 상태 발행이 예외로 막힙니다."""
+    assert ROBOT_STATES == {
+        "IDLE",
+        "NAVIGATING",
+        "DOCKING",
+        "SERVICING",
+        "GREETING",
     }
 
 

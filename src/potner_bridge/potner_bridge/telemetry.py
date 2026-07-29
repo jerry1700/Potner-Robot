@@ -39,6 +39,20 @@ class SensorUnit:
     LUX = "LUX"
 
 
+class RobotState:
+    """서버 RobotState enum 과 1:1 대응.
+
+    potner_mission.mission_manager_node.MissionState 와 이름이 같아야
+    합니다. 상태 문자열을 그대로 실어 보내기 때문입니다.
+    """
+
+    IDLE = "IDLE"
+    NAVIGATING = "NAVIGATING"
+    DOCKING = "DOCKING"
+    SERVICING = "SERVICING"
+    GREETING = "GREETING"
+
+
 # 센서 종류별 단위. 서버가 unit 을 함께 받으므로 여기서 확정해 보냅니다.
 UNIT_FOR_TYPE = {
     SensorType.TEMPERATURE: SensorUnit.CELSIUS,
@@ -55,12 +69,21 @@ ROBOT_SENSOR_TYPES = (
     SensorType.BATTERY,
 )
 
+ROBOT_STATES = frozenset(
+    value for name, value in vars(RobotState).items() if not name.startswith("_")
+)
+
+
 def sensor_topic(device_id: str) -> str:
     return f"potner/device/{device_id}/sensor/telemetry"
 
 
 def heartbeat_topic(device_id: str) -> str:
     return f"potner/device/{device_id}/status/heartbeat"
+
+
+def state_topic(device_id: str) -> str:
+    return f"potner/device/{device_id}/status/state"
 
 
 def now_utc() -> datetime:
@@ -126,6 +149,30 @@ def heartbeat_message(
             "messageId": message_id or str(uuid.uuid4()),
             "deviceId": device_id,
             "sentAt": iso_utc(sent_at),
+        },
+        ensure_ascii=False,
+    )
+
+
+def state_message(
+    device_id: str, state: str, changed_at: datetime, message_id: str = None
+) -> str:
+    """로봇의 현재 상태를 JSON 문자열로 만듭니다.
+
+    앱에서 "로봇이 지금 무엇을 하는지" 보여주기 위한 것입니다.
+
+    Raises:
+        ValueError: RobotState 에 없는 상태일 때
+    """
+    if state not in ROBOT_STATES:
+        raise ValueError(f"서버 enum 에 없는 상태: {state!r}")
+
+    return json.dumps(
+        {
+            "messageId": message_id or str(uuid.uuid4()),
+            "deviceId": device_id,
+            "state": state,
+            "changedAt": iso_utc(changed_at),
         },
         ensure_ascii=False,
     )
