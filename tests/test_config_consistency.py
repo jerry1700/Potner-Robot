@@ -139,6 +139,36 @@ def test_초점거리가_설정파일과_일치한다():
     )
 
 
+def test_서버로_보내는_상태_목록이_임무_상태_머신과_일치한다():
+    """mission_manager 의 MissionState 이름을 그대로 MQTT 로 실어 보냅니다.
+
+    한쪽에만 상태를 추가하면 그 상태에 들어간 순간 발행이 예외로 막힙니다.
+    mission_manager 는 rclpy 를 import 해서 CI 에서 못 불러오므로 소스를
+    읽어 대조합니다.
+    """
+    from potner_bridge.telemetry import ROBOT_STATES
+
+    source = (
+        REPO
+        / "src"
+        / "potner_mission"
+        / "potner_mission"
+        / "mission_manager_node.py"
+    ).read_text(encoding="utf-8")
+
+    block = re.search(
+        r"class MissionState\(Enum\):(.*?)(?=\nclass |\Z)", source, re.DOTALL
+    )
+    assert block, "MissionState 정의를 찾지 못했습니다"
+
+    states = set(re.findall(r"^\s+([A-Z_]+)\s*=\s*auto\(\)", block.group(1), re.M))
+
+    assert states == ROBOT_STATES, (
+        f"임무 상태 머신 {sorted(states)} 와 "
+        f"서버 전송 목록 {sorted(ROBOT_STATES)} 가 다릅니다"
+    )
+
+
 def test_엔코더_분해능은_부품_사양값이다():
     """FIT0403 출력축 1440 CPR. 부품을 바꾸지 않는 한 손대면 안 됩니다."""
     assert DriveConfig().counts_per_rev == 1440

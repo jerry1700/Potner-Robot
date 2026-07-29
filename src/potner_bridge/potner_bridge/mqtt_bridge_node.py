@@ -25,6 +25,8 @@ from potner_bridge.telemetry import (
     parse_sensor_message,
     sensor_message,
     sensor_topic,
+    state_message,
+    state_topic,
 )
 
 try:
@@ -59,15 +61,20 @@ class MqttBridge(Node):
         self._device_id = self.get_parameter("device_id").value
         self._sensor_topic = sensor_topic(self._device_id)
         self._heartbeat_topic = heartbeat_topic(self._device_id)
+        self._state_topic = state_topic(self._device_id)
 
         # 센서 종류별로 마지막 측정값과 측정 시각을 들고 있습니다.
         # measuredAt 은 발행 시각이 아니라 실제로 읽은 시각이어야 합니다.
         self._latest = {}
+        self._state = None
+        self._state_changed_at = None
 
         for topic, sensor_type in SENSOR_SOURCES:
             self.create_subscription(
                 Float32, topic, self._capture(sensor_type), 10
             )
+
+        self.create_subscription(String, "mission/state", self._on_state, 10)
 
         # 스테이션 서비스 요청은 모아 올리지 않고 즉시 중계합니다. 도킹이
         # 끝난 직후 급수나 송풍을 시작해야 하는데, 전송 주기를 기다리면
@@ -152,6 +159,19 @@ class MqttBridge(Node):
 
         return callback
 
+    def _on_state(self, msg: String):
+        """상태가 바뀔 때만 서버에 알립니다.
+
+        mission_manager 는 판단 주기(2초)마다 같은 상태를 계속 발행합니다.
+        그대로 중계하면 브로커에 초당 메시지가 쌓이므로 변화만 골라냅니다.
+        """
+        if msg.data == self._state:
+            return
+
+        self._state = msg.data
+        self._state_changed_at = now_utc()
+        self._publish_state()
+
     def _on_request(self, msg: String):
         """스테이션에 서비스 시작을 요청합니다 (급수, 송풍 등).
 
@@ -198,6 +218,23 @@ class MqttBridge(Node):
                     f"센서 발행 실패: {exc}", throttle_duration_sec=30.0
                 )
 
+    def _publish_state(self):
+        if self._client is None or self._state is None:
+            return
+        try:
+            self._client.publish(
+                self._state_topic,
+                state_message(self._device_id, self._state, self._state_changed_at),
+            )
+        except ValueError as exc:
+            # mission_manager 가 서버 enum 에 없는 상태를 만든 경우입니다.
+            # 양쪽 enum 이 어긋났다는 신호라 조용히 넘기면 안 됩니다.
+            self.get_logger().error(f"상태 메시지 생성 실패: {exc}")
+        except Exception as exc:
+            self.get_logger().error(
+                f"상태 발행 실패: {exc}", throttle_duration_sec=30.0
+            )
+
     def _publish_heartbeat(self):
         if self._client is None:
             return
@@ -210,6 +247,10 @@ class MqttBridge(Node):
             self.get_logger().error(
                 f"하트비트 발행 실패: {exc}", throttle_duration_sec=30.0
             )
+
+        # 상태도 함께 다시 보냅니다. 변화 시점의 메시지가 유실되면 앱이
+        # 낡은 상태를 계속 보여주는데, 이러면 30초 안에 복구됩니다.
+        self._publish_state()
 
 
 def main(args=None):
