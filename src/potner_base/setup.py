@@ -19,6 +19,8 @@ setup(
     entry_points={
         "console_scripts": [
             "base_driver = potner_base.base_driver_node:main",
+            "plant_sensors = potner_base.plant_sensors_node:main",
+            "speaker = potner_base.speaker_node:main",
         ],
     },
 )

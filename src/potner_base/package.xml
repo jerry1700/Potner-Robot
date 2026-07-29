@@ -3,7 +3,7 @@
 <package format="3">
   <name>potner_base</name>
   <version>0.1.0</version>
-  <description>ESP32 저수준 컨트롤러와 통신하며 cmd_vel을 바퀴 속도로 변환하고 엔코더로 odom을 만드는 하드웨어 계층</description>
+  <description>로봇 하드웨어 계층 — ESP32 시리얼 통신, 차동 구동 기구학과 오도메트리, I2C 식물·배터리 센서</description>
   <maintainer email="dongkyu.han20@gmail.com">E104</maintainer>
   <license>MIT</license>
 
@@ -13,6 +13,7 @@
   <exec_depend>sensor_msgs</exec_depend>
   <exec_depend>tf2_ros</exec_depend>
   <exec_depend>python3-serial</exec_depend>
+  <exec_depend>python3-smbus2</exec_depend>
 
   <test_depend>ament_copyright</test_depend>
   <test_depend>ament_flake8</test_depend>
