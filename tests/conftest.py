@@ -11,14 +11,8 @@ from pathlib import Path
 
 SRC = Path(__file__).resolve().parent.parent / "src"
 
-# 각 ROS 패키지의 파이썬 모듈 폴더를 import 경로에 올립니다.
-for package in (
-    "potner_base",
-    "potner_docking",
-    "potner_mission",
-    "potner_perception",
-    "potner_llm",
-):
-    path = SRC / package
-    if path.is_dir():
-        sys.path.insert(0, str(path))
+# 패키지 목록을 손으로 적어두면 새 패키지를 만들 때마다 import 오류가
+# 납니다. src/potner_* 를 훑어서 자동으로 올립니다.
+for package in sorted(SRC.glob("potner_*")):
+    if (package / package.name).is_dir():
+        sys.path.insert(0, str(package))
