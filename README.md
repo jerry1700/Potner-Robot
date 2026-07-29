@@ -259,6 +259,10 @@ ROS 2 없이 돌아갑니다. 젠킨스 CI가 이 테스트와 flake8 문법 검
 - [x] YDLIDAR 드라이버 연동 — `/scan` 약 11Hz 확인
 - [x] 카메라 + ArUco 마커 인식 — `/image_raw` 29Hz, 마커 ID 확인
 - [x] `DockToStation` 액션 서버 및 `mission_manager` 연결
+- [x] 토픽 연결 전수 검사 — 발행자·구독자 없는 토픽 해소
+- [ ] BH1750·ADS1115 납땜 후 `plant_sensors` 실기 확인
+- [ ] 토양 수분 보정값 실측 (`moisture_raw_dry` / `moisture_raw_wet`)
+- [ ] 스테이션 팀과 `potner/station/telemetry` JSON 키 합의
 - [ ] 카메라 초점거리 보정 (`focal_calibrator`)
 - [ ] ESP32 펌웨어 실기 검증 및 PID 튜닝
 - [ ] 축간거리(`wheel_separation`) 실측

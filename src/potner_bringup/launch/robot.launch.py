@@ -70,6 +70,21 @@ def generate_launch_description():
             output="screen",
         ),
 
+        # ---- 식물·배터리 센서: mission_manager 의 판단 입력
+        Node(
+            package="potner_base",
+            executable="plant_sensors",
+            parameters=[params],
+            output="screen",
+        ),
+
+        # ---- 스피커: tts/say 를 소리로 내보냅니다
+        Node(
+            package="potner_base",
+            executable="speaker",
+            parameters=[params],
+        ),
+
         # ---- 센서
         Node(
             package="v4l2_camera",
