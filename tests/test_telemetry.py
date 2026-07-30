@@ -13,13 +13,16 @@ from potner_bridge.telemetry import (
     ROBOT_SENSOR_TYPES,
     ROBOT_STATES,
     UNIT_FOR_TYPE,
+    VALUE_RANGE,
     RobotState,
     SensorType,
     SensorUnit,
+    battery_message,
+    battery_topic,
+    command_topic,
     heartbeat_message,
     heartbeat_topic,
     iso_utc,
-    parse_sensor_message,
     sensor_message,
     sensor_topic,
     state_message,
@@ -32,6 +35,33 @@ MOMENT = datetime(2026, 7, 23, 8, 0, 0, tzinfo=timezone.utc)
 def test_토픽_형식():
     assert sensor_topic("jetson-01") == "potner/device/jetson-01/sensor/telemetry"
     assert heartbeat_topic("jetson-01") == "potner/device/jetson-01/status/heartbeat"
+    assert state_topic("jetson-01") == "potner/device/jetson-01/status/state"
+    assert battery_topic("jetson-01") == "potner/device/jetson-01/status/battery"
+    assert command_topic("jetson-01") == "potner/device/jetson-01/command/#"
+
+
+@pytest.mark.parametrize(
+    "topic",
+    [
+        sensor_topic("jetson-01"),
+        heartbeat_topic("jetson-01"),
+        state_topic("jetson-01"),
+        battery_topic("jetson-01"),
+    ],
+)
+def test_모든_토픽이_ACL_이_허용하는_경로_안에_있다(topic):
+    """브로커 ACL 이 자기 기기 아래의 sensor/status/result 만 쓰기 허용합니다.
+
+        pattern write potner/device/%u/sensor|status|result/#
+
+    벗어난 토픽은 발행이 조용히 버려지고 양쪽 로그에 아무것도 남지 않아
+    가장 찾기 어렵습니다. 그래서 형식을 여기서 못박습니다.
+    """
+    head, _, tail = topic.partition("/status/")
+    if not tail:
+        head, _, tail = topic.partition("/sensor/")
+
+    assert head == "potner/device/jetson-01", f"ACL 범위를 벗어난 토픽: {topic}"
 
 
 def test_센서_메시지가_명세와_일치한다():
@@ -106,24 +136,107 @@ def test_서버_enum_에_없는_종류는_거부한다():
         sensor_message("jetson-01", "illuminance", 1.0, MOMENT)  # 소문자
 
 
-def test_배터리는_퍼센트로_보낸다():
-    """4S 젯슨팩 기준입니다. 3S 모터팩은 측정하지 않습니다."""
-    payload = json.loads(
-        sensor_message("jetson-01", SensorType.BATTERY, 78.0, MOMENT, "uuid-3")
-    )
+def test_배터리는_센서_종류가_아니다():
+    """센서값은 식물에 귀속되어 저장되는데 배터리는 로봇의 속성입니다.
 
-    assert payload["sensorType"] == "BATTERY"
-    assert payload["unit"] == "PERCENT"
-    assert payload["value"] == 78.0
+    BATTERY 를 sensorType 으로 보내면 서버 enum 에 없어서 조용히 버려집니다.
+    전용 토픽 status/battery 를 씁니다.
+    """
+    assert not hasattr(SensorType, "BATTERY")
+
+    with pytest.raises(ValueError, match="센서 종류"):
+        sensor_message("jetson-01", "BATTERY", 78.0, MOMENT)
 
 
-def test_로봇이_발행하는_종류는_세_가지다():
-    """온도·습도는 스테이션이 잽니다."""
+def test_로봇이_발행하는_센서는_두_가지다():
+    """온도·습도는 스테이션이 잽니다. 배터리는 센서가 아닙니다."""
     assert set(ROBOT_SENSOR_TYPES) == {
         SensorType.SOIL_MOISTURE,
         SensorType.ILLUMINANCE,
-        SensorType.BATTERY,
     }
+
+
+def test_배터리_메시지가_명세와_일치한다():
+    """4S 젯슨팩 기준입니다. 3S 모터팩은 측정하지 않습니다."""
+    payload = json.loads(battery_message("jetson-01", 78.0, MOMENT, "uuid-5"))
+
+    assert payload == {
+        "messageId": "uuid-5",
+        "deviceId": "jetson-01",
+        "batteryPercent": 78,
+        "measuredAt": "2026-07-23T08:00:00Z",
+    }
+
+
+def test_배터리_잔량은_정수로_내림한다():
+    """서버가 실수를 받으면 내려서 저장하므로 미리 맞춰 보냅니다."""
+    payload = json.loads(battery_message("jetson-01", 78.9, MOMENT))
+
+    assert payload["batteryPercent"] == 78
+    assert isinstance(payload["batteryPercent"], int)
+
+
+@pytest.mark.parametrize("percent", [-0.5, -1.0, 101.0, 255.0])
+def test_범위를_벗어난_배터리는_깎지_않고_거부한다(percent):
+    """0 이나 100 으로 깎으면 값을 만드는 쪽의 버그가 숨습니다.
+
+    단위 착각이나 셀 수 오설정으로 255% 가 나왔을 때 100 으로 깎아 보내면
+    앱에는 "완충" 으로 보여서 아무도 눈치채지 못합니다.
+
+    다만 plant_conversions.battery_percent 는 리튬이온 곡선 끝에서 이미
+    0~100 으로 자르므로, 실제 운영 경로에서는 이 검사가 걸리지 않습니다.
+    여기서 막는 것은 그 함수를 우회하거나 바꿀 때의 실수입니다.
+    """
+    with pytest.raises(ValueError, match="0~100"):
+        battery_message("jetson-01", percent, MOMENT)
+
+
+@pytest.mark.parametrize("percent", [0.0, 0.4, 50.0, 100.0, 100.5])
+def test_경계값_배터리는_통과한다(percent):
+    """범위 검사는 내림한 뒤 값에 걸립니다. 100.5 -> 100 은 유효합니다.
+
+    반대로 -0.5 -> -1 은 거부됩니다. int() 로 자르면 -0.5 가 0 이 되어
+    통과해버리므로 math.floor 를 써야 합니다.
+    """
+    battery_message("jetson-01", percent, MOMENT)
+
+
+@pytest.mark.parametrize(
+    "sensor_type,value",
+    [
+        (SensorType.TEMPERATURE, -40.1),
+        (SensorType.TEMPERATURE, 85.1),
+        (SensorType.HUMIDITY, -0.1),
+        (SensorType.HUMIDITY, 100.1),
+        (SensorType.SOIL_MOISTURE, -1.0),
+        (SensorType.SOIL_MOISTURE, 101.0),
+        (SensorType.ILLUMINANCE, -1.0),
+    ],
+)
+def test_허용_범위를_벗어난_센서값은_거부한다(sensor_type, value):
+    """서버가 조용히 버리므로 발행 전에 걸러야 고장을 알 수 있습니다."""
+    with pytest.raises(ValueError, match="허용 범위"):
+        sensor_message("jetson-01", sensor_type, value, MOMENT)
+
+
+@pytest.mark.parametrize(
+    "sensor_type,value",
+    [
+        (SensorType.TEMPERATURE, -40.0),
+        (SensorType.TEMPERATURE, 85.0),
+        (SensorType.HUMIDITY, 0.0),
+        (SensorType.SOIL_MOISTURE, 100.0),
+        (SensorType.ILLUMINANCE, 0.0),
+        (SensorType.ILLUMINANCE, 65535.0),  # BH1750 최대 출력. 상한이 없습니다
+    ],
+)
+def test_경계값_센서값은_통과한다(sensor_type, value):
+    sensor_message("jetson-01", sensor_type, value, MOMENT)
+
+
+def test_모든_센서_종류에_허용_범위가_정해져_있다():
+    """종류를 추가하면서 범위를 빼먹으면 발행 시점에 KeyError 로 죽습니다."""
+    assert set(VALUE_RANGE) == set(UNIT_FOR_TYPE)
 
 
 def test_상태_메시지가_명세와_일치한다():
@@ -157,29 +270,6 @@ def test_상태_목록이_임무_상태_머신과_일치한다():
         "SERVICING",
         "GREETING",
     }
-
-
-def test_스테이션이_보낸_메시지를_해석한다():
-    """로봇은 대기 온도를 직접 재지 않고 스테이션이 올린 값을 씁니다."""
-    payload = sensor_message("raspberry-01", SensorType.TEMPERATURE, 24.3, MOMENT)
-    assert parse_sensor_message(payload) == (SensorType.TEMPERATURE, 24.3)
-
-
-@pytest.mark.parametrize(
-    "payload",
-    [
-        "",
-        "not json",
-        "[]",
-        '{"sensorType": "UNKNOWN", "value": 1}',
-        '{"sensorType": "TEMPERATURE"}',
-        '{"sensorType": "TEMPERATURE", "value": "뜨거움"}',
-        '{"value": 1}',
-    ],
-)
-def test_망가진_메시지는_None_을_돌려준다(payload):
-    """브로커에 다른 팀이 잘못 올린 값이 섞여 들어와도 노드가 죽지 않아야 합니다."""
-    assert parse_sensor_message(payload) == (None, None)
 
 
 def test_한글이_이스케이프되지_않는다():

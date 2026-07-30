@@ -74,6 +74,12 @@ class MissionManager(Node):
         # 식물 센서 (plant_sensors 노드가 발행)
         self.create_subscription(Float32, "plant/moisture", self._set("moisture"), 10)
         self.create_subscription(Float32, "plant/lux", self._set("light"), 10)
+        # ★ 대기 온도는 현재 아무도 발행하지 않아 계속 None 입니다.
+        #   스테이션이 재서 서버로 올리는데, 브로커 ACL 이 기기끼리 주고받는
+        #   것을 막아 로봇이 그 값을 받을 경로가 없습니다 (DEVICE-MQTT.md 3절).
+        #   그래서 송풍(WIND) 임무는 지금 절대 걸리지 않습니다. Readings 가
+        #   None 을 건너뛰므로 오작동은 아니고, 서버가 command 로 온도를
+        #   내려주기로 정해지면 그때 연결하면 됩니다.
         self.create_subscription(
             Float32, "plant/temperature", self._set("temperature"), 10
         )
@@ -84,7 +90,12 @@ class MissionManager(Node):
 
         self._speech_pub = self.create_publisher(String, "tts/say", 10)
         self._state_pub = self.create_publisher(String, "mission/state", 10)
-        # 스테이션에 서비스 시작을 요청합니다. mqtt_bridge 가 중계합니다.
+        # 스테이션에 서비스 시작을 요청합니다.
+        # ★ 로봇 안에서만 흐릅니다. 예전에는 mqtt_bridge 가 이걸
+        #   potner/station/.../request 로 중계했지만 브로커 ACL 이 그 경로를
+        #   막습니다. 급수 명령은 서버가 스테이션에 직접 보내는 것으로
+        #   정리됐습니다 (DEVICE-MQTT.md 12절). 로봇의 의도를 로그로 남기고
+        #   서비스 타이머를 걸기 위해 발행은 유지합니다.
         self._service_pub = self.create_publisher(String, "station/request", 10)
 
         self._nav_client = ActionClient(self, NavigateToPose, "navigate_to_pose")

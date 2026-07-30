@@ -141,13 +141,19 @@ person_detector:
 
 mqtt_bridge:
   ros__parameters:
-    broker_host: localhost   # TODO: EC2 브로커 주소로 교체
-    broker_port: 1883
+    broker_host: i15e104.p.ssafy.io
+    broker_port: 1884        # 1883 이 아닙니다. EC2 보안그룹이 1884 만 엽니다
 
-    # 서버가 기기를 구분하는 값. 토픽 경로에도 그대로 들어갑니다.
-    #   potner/device/jetson-01/sensor/telemetry
-    #   potner/device/jetson-01/status/heartbeat
+    # 서버가 기기를 구분하는 값. 세 곳에 같이 쓰입니다.
+    #   1. 토픽 경로       potner/device/jetson-01/sensor/telemetry
+    #   2. 페이로드        "deviceId": "jetson-01"
+    #   3. 브로커 계정명   ACL 의 %u 가 이 값으로 치환됩니다
+    # 그래서 계정명과 다르게 두면 발행이 전부 조용히 거부됩니다.
     device_id: jetson-01
 
+    # 비밀번호는 저장소에 두지 않습니다. 이름만 적고 값은 셸 환경에서 읽습니다.
+    password_env: POTNER_MQTT_PASSWORD
+
     publish_period: 10.0     # 센서값 전송 주기 (s)
-    heartbeat_period: 30.0   # 살아있음 신호 주기 (s)
+    heartbeat_period: 30.0   # 살아있음 신호 주기 (s). 90초 넘기면 OFFLINE
+    battery_period: 60.0     # 배터리 잔량 주기 (s). 분 단위로 변해 길게 잡음

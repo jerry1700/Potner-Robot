@@ -4,7 +4,13 @@
 바꿔 서버에 보내고, 서버 LLM 이 만든 답을 MQTT 로 내려보냅니다. 로봇은
 받은 문장을 소리로만 내보냅니다. 그래서 STT 없이 TTS 만 있습니다.
 
-    앱(음성 입력) -> 서버(LLM) -> MQTT -> mqtt_bridge -> tts/say -> speaker
+    앱(음성 입력) -> 서버(LLM) -> ??? -> tts/say -> speaker
+
+★ 서버가 만든 대사를 로봇까지 전달하는 경로가 아직 없습니다.
+  docs/DEVICE-MQTT.md 4절의 서버->장치 토픽은 command/expression 하나뿐이고,
+  브로커 ACL 이 command/# 아래만 읽기 허용합니다. 서버 팀에 command/speech
+  추가를 요청해 둔 상태입니다. 지금 tts/say 로 들어오는 것은 mission_manager
+  의 인사말뿐입니다.
 
 재생은 별도 스레드에서 순서대로 처리합니다. 콜백에서 바로 재생하면 실행기
 스레드가 몇 초씩 막혀 다른 노드의 콜백까지 밀립니다. 문장이 겹쳐 들어와도
