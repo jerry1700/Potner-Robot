@@ -139,6 +139,24 @@ person_detector:
     inference_period: 0.2    # 5Hz
     device: cuda
 
+face_display:
+  ros__parameters:
+    # 지금은 HDMI 모니터에 창으로 띄웁니다. 7인치 LCD 로 옮기면 그 해상도로
+    # 바꾸고 fullscreen 을 true 로 하세요.
+    width: 800
+    height: 480
+    fullscreen: false
+
+    # 어떤 사유로 이 표정이 왔는지 화면 아래에 적습니다. 브링업 중에는 켜두는
+    # 편이 낫고, 시연 때는 끄세요.
+    show_reason: true
+
+    # 비워두면 화면에만 그립니다. 경로를 주면 그린 얼굴을 그 파일로도
+    # 남깁니다. 젯슨은 DisplayPort 만 내서 모니터가 아직 안 붙었을 때
+    # MQTT -> 표정 경로를 이걸로 확인할 수 있습니다.
+    #   예) /tmp/potner_face.png
+    save_path: ""
+
 mqtt_bridge:
   ros__parameters:
     broker_host: i15e104.p.ssafy.io
