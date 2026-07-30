@@ -90,6 +90,11 @@ class DockingServer(Node):
             Int32, "perception/marker_id", self._on_id,
             qos_profile_sensor_data, callback_group=group,
         )
+        # ★ 스테이션의 홀 센서 접점 신호. 현재 아무도 발행하지 않습니다.
+        #   브로커 ACL 이 기기끼리 주고받는 것을 막아 스테이션 신호가 로봇까지
+        #   오지 못합니다 (DEVICE-MQTT.md 3절). require_station_confirm 이
+        #   false 라 도킹은 카메라 정렬만으로 성공 판정합니다. 이 값을 true 로
+        #   바꾸면 도킹이 영원히 끝나지 않습니다.
         self.create_subscription(
             Bool, "station/docked", self._on_station, 10, callback_group=group,
         )

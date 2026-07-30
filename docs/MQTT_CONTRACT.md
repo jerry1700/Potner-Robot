@@ -1,114 +1,77 @@
-# MQTT 메시지 명세
+# MQTT — 로봇 쪽 구현 노트
 
-로봇(Jetson) · 스테이션(Raspberry Pi) · 서버(Spring Boot) 가 주고받는
-메시지 형식입니다.
-
-**한쪽만 바꾸면 아무 에러 없이 값이 안 들어옵니다.** 서버가 모르는
-`sensorType` 을 받으면 조용히 버리고, 로봇은 잘 보냈다고 생각합니다.
-그래서 이 문서를 단일 기준으로 둡니다. 바꿀 때는 세 파트가 함께 바꿉니다.
+> **메시지 형식의 기준은 [`DEVICE-MQTT.md`](DEVICE-MQTT.md) 입니다.** 서버 팀이
+> 관리하고 이 문서보다 권위가 있습니다. 토픽 경로, 페이로드 필드, enum 값,
+> 허용 범위는 모두 그쪽을 보세요.
+>
+> 예전에는 이 문서가 형식을 직접 정의했는데, 서버 문서가 나온 뒤로 두 문서가
+> 서로 다른 말을 하기 시작했습니다. 어느 쪽을 믿을지 모르는 상황이 형식
+> 불일치보다 위험하므로 여기서는 **로봇 쪽 결정만** 남깁니다.
 
 관련 코드
-- 로봇: [`src/potner_bridge/potner_bridge/telemetry.py`](../src/potner_bridge/potner_bridge/telemetry.py)
-- 검증: [`tests/test_telemetry.py`](../tests/test_telemetry.py) — 이 문서와 코드가 어긋나면 CI 가 잡습니다
-
-## 공통 규칙
-
-| 항목 | 규칙 |
-|---|---|
-| 인코딩 | UTF-8, 한글 이스케이프하지 않음 |
-| `messageId` | UUID v4 문자열 (36자) |
-| `deviceId` | 기기 식별자. 토픽 경로와 같은 값 |
-| 시각 | **ISO 8601 UTC, 초 단위, `Z` 로 끝남** — `2026-07-23T08:00:00Z` |
-
-시각을 UTC 로 고정하는 이유는, 로봇과 서버의 시간대가 다르면 일기 생성과
-성장 기록의 순서가 뒤섞이기 때문입니다. 한국 시각을 그대로 보내면 9시간
-어긋난 기록이 쌓입니다.
-
-## 기기 식별자
-
-| deviceId | 기기 |
-|---|---|
-| `jetson-01` | 로봇 (Jetson Orin Nano) |
-| `raspberry-01` | 장치 스테이션 (Raspberry Pi 5) |
+- 메시지 생성: [`src/potner_bridge/potner_bridge/telemetry.py`](../src/potner_bridge/potner_bridge/telemetry.py)
+- 노드: [`src/potner_bridge/potner_bridge/mqtt_bridge_node.py`](../src/potner_bridge/potner_bridge/mqtt_bridge_node.py)
+- 검증: [`tests/test_telemetry.py`](../tests/test_telemetry.py) — 서버 문서와 어긋나면 CI 가 잡습니다
 
 ---
 
-## 1. 센서 측정값
+## 로봇이 주고받는 것
 
-**측정값 하나당 메시지 하나**입니다. 여러 센서를 한 메시지에 묶지 않습니다.
-
-```
-발행: potner/device/{deviceId}/sensor/telemetry
-```
-
-```json
-{
-  "messageId": "3f2b1c8e-5a4d-4e7f-9c1a-2b3d4e5f6a7b",
-  "deviceId": "jetson-01",
-  "sensorType": "SOIL_MOISTURE",
-  "value": 42.5,
-  "unit": "PERCENT",
-  "measuredAt": "2026-07-23T08:00:00Z"
-}
-```
-
-`measuredAt` 은 **발행 시각이 아니라 실제로 센서를 읽은 시각**입니다.
-전송 주기가 10초라 발행 시각을 쓰면 최대 10초 어긋납니다.
-
-### SensorType
-
-```java
-package com.potner.sensor.domain;
-
-public enum SensorType {
-    TEMPERATURE,
-    HUMIDITY,
-    SOIL_MOISTURE,
-    ILLUMINANCE,
-    BATTERY            // 추가 요청 — 4S 젯슨팩 잔량
-}
-```
-
-### SensorUnit
-
-```java
-package com.potner.sensor.domain;
-
-public enum SensorUnit {
-    CELSIUS,
-    PERCENT,
-    LUX
-}
-```
-
-`BATTERY` 는 기존 `PERCENT` 를 그대로 쓰므로 **SensorUnit 은 바꿀 필요가
-없습니다.**
-
-### 종류별 단위와 발행 주체
-
-| sensorType | unit | 발행 | 출처 |
+| 방향 | 토픽 | 주기 | ROS 원본 |
 |---|---|---|---|
-| `SOIL_MOISTURE` | `PERCENT` | `jetson-01` | 정전식 센서 → ADS1115 |
-| `ILLUMINANCE` | `LUX` | `jetson-01` | BH1750 |
-| `BATTERY` | `PERCENT` | `jetson-01` | INA226 전압 → 리튬이온 곡선 환산 |
-| `TEMPERATURE` | `CELSIUS` | `raspberry-01` | 스테이션 온습도 센서 |
-| `HUMIDITY` | `PERCENT` | `raspberry-01` | 스테이션 온습도 센서 |
+| 발행 | `sensor/telemetry` (`SOIL_MOISTURE`) | 10초 | `plant/moisture` |
+| 발행 | `sensor/telemetry` (`ILLUMINANCE`) | 10초 | `plant/lux` |
+| 발행 | `status/heartbeat` | 30초 | — |
+| 발행 | `status/state` | 변화 시 + 30초 | `mission/state` |
+| 발행 | `status/battery` | 60초 | `battery/percent` |
+| 구독 | `command/#` | — | (미구현) |
 
-로봇은 대기 온도를 직접 재지 않고 스테이션이 올린 값을 구독해서 씁니다.
-젯슨에서 DHT11 을 읽으려면 마이크로초 타이밍이 필요한데 리눅스는 실시간
-OS 가 아니라 자주 실패합니다.
+온도와 습도는 스테이션이 재서 서버로 직접 올립니다. 젯슨에서 DHT11 을 읽으려면
+마이크로초 타이밍이 필요한데 리눅스는 실시간 OS 가 아니라 자주 실패합니다.
 
-**배터리 값은 전압에서 환산한 추정치입니다.** 주행 중에는 부하 때문에
-전압이 처져 실제보다 낮게 나옵니다. 충전 시점 판단에는 충분하지만 정밀한
-잔량계로 쓰지 마세요.
+## 접속
 
-### 배터리를 한 종류만 재는 이유
+```
+호스트   i15e104.p.ssafy.io
+포트     1884            ← 1883 이 아닙니다
+계정명   jetson-01       ← device_id 와 반드시 같아야 합니다
+비밀번호 POTNER_MQTT_PASSWORD 환경변수
+client_id jetson-01-bridge
+QoS      1
+```
+
+**계정명이 `device_id` 와 같아야 하는 이유는 ACL 이 `%u` 치환을 쓰기
+때문입니다.** 다르게 두면 자기 토픽에 대한 권한이 없어져 발행이 전부 거부되고,
+거부는 발행 쪽에 에러로 돌아오지 않아 "연결됨" 만 보이는 채로 값이 안
+들어옵니다.
+
+비밀번호는 저장소에 두지 않습니다. `potner_params.yaml` 에는 환경변수 **이름**만
+적혀 있습니다.
+
+## ACL 이 막는 것
+
+```
+pattern write potner/device/%u/sensor|status|result/#
+pattern read  potner/device/%u/command/#
+```
+
+자기 `device/jetson-01/` 아래만 오갈 수 있습니다. 그래서 아래 설계는 **브로커
+레벨에서 불가능**하고, 코드에서 걷어냈습니다.
+
+| 걷어낸 것 | 원래 용도 | 남은 결과 |
+|---|---|---|
+| `potner/station/{역할}/request` 발행 | 급수·송풍 요청 | 급수 명령은 서버가 스테이션에 직접 보냅니다 |
+| `potner/station/+/docked` 구독 | 홀 센서 접점 확인 | `require_station_confirm` 을 쓸 수 없습니다 (기본 `false`) |
+| `potner/device/+/sensor/telemetry` 구독 | 스테이션 온도 받기 | `plant/temperature` 가 항상 `None` → **송풍 임무가 걸리지 않습니다** |
+| `potner/device/{id}/speech` 구독 | LLM 대사 받기 | **TTS 대사 전달 경로가 없습니다** |
+
+## 배터리를 한 종류만 재는 이유
 
 로봇에는 팩이 두 개입니다 — 4S 젯슨팩과 3S 모터팩. 그중 **젯슨팩만**
 측정합니다.
 
 젯슨은 15~25W 를 계속 먹는 반면 모터는 이동할 때만 돕니다. 용량도 젯슨팩
-51.8Wh, 모터팩 38.9Wh 로 비슷해서, 실사용에서는 **젯슨팩이 먼저 바닥납니다.**
+51.8Wh, 모터팩 38.9Wh 로 비슷해서 실사용에서는 **젯슨팩이 먼저 바닥납니다.**
 먼저 떨어지는 쪽을 재면 충전 임무가 제때 걸리므로 모터팩까지 계측할 필요가
 없습니다. INA226 도 한 개뿐입니다.
 
@@ -116,119 +79,45 @@ OS 가 아니라 자주 실패합니다.
 로봇이 이유 없이 멈춘 것처럼 보입니다. 실주행에서 두 팩의 소모 속도를 한 번
 확인해두면 좋습니다.
 
----
+**잔량은 전압에서 환산한 추정치입니다.** 주행 중에는 부하 때문에 전압이 처져
+실제보다 낮게 나옵니다. 충전 시점 판단에는 충분하지만 정밀한 잔량계로 쓰지
+마세요.
 
-## 2. 하트비트
+## 범위를 벗어난 값을 깎지 않는 이유
 
-기기가 살아 있다는 신호입니다.
+서버는 허용 범위를 벗어난 값을 **버립니다** (0 이나 100 으로 깎지 않습니다).
+코드도 같은 방침이라 `telemetry.py` 가 예외를 내고 노드가 로그로 남깁니다.
 
-```
-발행: potner/device/{deviceId}/status/heartbeat
-주기: 30초
-```
+깎으면 센서 고장이 정상값으로 위장됩니다. 값을 만드는 쪽의 버그(단위 착각,
+셀 수 잘못 설정, 부호 반전)가 로그에 드러나야 고칠 수 있습니다.
 
-```json
-{
-  "messageId": "8c7d6e5f-4a3b-2c1d-9e8f-7a6b5c4d3e2f",
-  "deviceId": "jetson-01",
-  "sentAt": "2026-07-23T08:00:00Z"
-}
-```
+> ⚠️ **이 검사가 못 잡는 경우가 있습니다.** `plant_conversions.battery_percent`
+> 는 리튬이온 곡선의 양 끝에서 값을 잘라 항상 0~100 을 돌려줍니다. 그래서
+> INA226 의 VBS 배선이 빠져 0V 를 읽으면 0% 가 되어 범위 검사를 그냥
+> 통과하고, 앱에는 "배터리 없음" 으로 보입니다.
+>
+> 이걸 구분하려면 잔량이 아니라 **전압**을 봐야 합니다. 4S 팩이 살아 있으면
+> 최소 12V 는 나오므로, 그보다 훨씬 낮은 전압은 배선 문제입니다.
+> `plant_sensors` 에 전압 하한 경고를 넣는 것이 다음 할 일입니다.
 
----
+## 시각
 
-## 3. 로봇 상태
+전부 UTC 로 보냅니다. 한국 시각을 그대로 보내면 9시간 어긋난 기록이 쌓여
+일기 생성과 성장 기록의 순서가 뒤섞입니다.
 
-앱에서 "로봇이 지금 무엇을 하는지" 보여주기 위한 것입니다.
-**상태가 바뀔 때마다** 발행하고, 하트비트 주기마다 한 번 더 보냅니다.
-MQTT 메시지가 유실되어도 30초 안에 복구되도록 하기 위함입니다.
-
-```
-발행: potner/device/{deviceId}/status/state
-```
-
-```json
-{
-  "messageId": "1a2b3c4d-5e6f-7a8b-9c0d-1e2f3a4b5c6d",
-  "deviceId": "jetson-01",
-  "state": "DOCKING",
-  "changedAt": "2026-07-23T08:00:00Z"
-}
-```
-
-### RobotState
-
-```java
-package com.potner.robot.domain;
-
-public enum RobotState {
-    IDLE,          // 대기. 센서를 지켜보는 중
-    NAVIGATING,    // 스테이션으로 이동 중 (Nav2)
-    DOCKING,       // 마커를 보며 정밀 접근 중
-    SERVICING,     // 스테이션에서 급수·송풍 등을 받는 중
-    GREETING       // 귀가한 사용자를 반기는 중
-}
-```
-
----
-
-## 4. 서버 → 로봇: 대사 전달
-
-서버 LLM 이 만든 문장을 로봇이 소리로 냅니다. 로봇에는 마이크가 없어서
-음성 인식은 앱이 하고, 로봇은 말하기만 합니다.
+**서버는 현재보다 10분 이상 미래인 시각을 버립니다.** 젯슨에 RTC 배터리가
+없어서 부팅 직후 시계가 틀어져 있을 수 있으므로 NTP 동기화가 필요합니다.
 
 ```
-구독: potner/device/{deviceId}/speech
+timedatectl status        # System clock synchronized: yes 확인
 ```
 
-payload 는 **JSON 이 아니라 평문 문자열**입니다.
+## 미구현
 
-```
-다녀오셨어요? 오늘도 잘 지냈어요.
-```
-
-로봇은 300자까지만 말합니다. 넘으면 잘라서 읽습니다. LLM 이 긴 답을
-보내면 로봇이 몇 분 동안 혼자 떠들게 되기 때문입니다.
-
----
-
-## 5. 로봇 → 스테이션: 서비스 요청 (미확정)
-
-도킹을 마친 뒤 스테이션에 급수나 송풍을 시작하라고 알립니다.
-
-> ⚠️ **아직 확정되지 않았습니다.** `Raspberry-feature/mqtt-command-receiver/186`
-> 담당자와 맞춘 뒤 이 절을 갱신하세요. 현재 로봇 코드는 아래 형태로
-> 발행하고 있습니다.
-
-```
-발행: potner/station/{역할}/request
-```
-
-역할은 `water`, `wind` 를 씁니다. 충전과 일광욕은 스테이션이 할 일이
-없어(접점 접촉과 위치 이동만) 요청을 보내지 않습니다.
-
----
-
-## 6. 스테이션 → 로봇: 도킹 접점 확인 (미확정)
-
-스테이션의 A3144 홀 센서가 로봇의 자석을 감지했다는 신호입니다. 카메라
-정렬보다 확실한 물리적 접촉 증거라 도킹 성공 판정에 씁니다.
-
-> ⚠️ **아직 확정되지 않았습니다.** 5절과 함께 맞추세요.
-
-```
-구독: potner/station/{stationId}/docked
-```
-
-payload 는 `1` / `true` 면 접점 확인입니다.
-
----
-
-## 변경할 때
-
-1. 이 문서를 먼저 고칩니다
-2. `telemetry.py` 와 `tests/test_telemetry.py` 를 함께 고칩니다
-3. 서버·스테이션 담당자에게 알립니다
-
-테스트가 문서의 예시와 같은 값을 검사하므로, 코드만 바꾸고 문서를 안
-고치면 리뷰에서 드러납니다.
+- **`command/expression`** — 7인치 LCD 표정 (`DEVICE-MQTT.md` 9절). 30초마다
+  같은 값이 반복되고, 모르는 값이 오면 `NEUTRAL` 로 떨어뜨려야 합니다
+- **`commandId` 되돌려주기** — 서버가 "명령 직전의 `IDLE`" 과 "도착 후의
+  `IDLE`" 을 구분하려면 필요합니다 (`DEVICE-MQTT.md` 12절). 없으면 서버가
+  대기 중인 로봇에게 급수 명령을 보내 물을 바닥에 쏟습니다
+- **`command/speech`** — 서버 팀에 추가를 요청해야 합니다. 현재 명세에 대사
+  전달 토픽이 없습니다
