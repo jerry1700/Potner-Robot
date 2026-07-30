@@ -85,6 +85,15 @@ def generate_launch_description():
             parameters=[params],
         ),
 
+        # ---- 얼굴: 서버가 정한 표정을 화면에 그립니다
+        # DISPLAY 가 없으면(SSH 접속 등) 스스로 물러납니다. 얼굴을 못 그리는
+        # 것 때문에 주행이 막히면 안 됩니다.
+        Node(
+            package="potner_base",
+            executable="face_display",
+            parameters=[params],
+        ),
+
         # ---- 센서
         Node(
             package="v4l2_camera",
