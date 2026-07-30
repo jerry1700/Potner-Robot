@@ -9,10 +9,11 @@
 합니다. 웃는 입과 우는 입을 뒤바꾸는 실수는 화면을 봐야 알 수 있어서,
 계산을 CI 가 검증할 수 있는 곳으로 빼두었습니다.
 
-화면이 없으면(SSH 접속 등) 조용히 물러납니다. 얼굴을 못 그리는 것 때문에
-로봇 전체가 죽으면 안 됩니다.
+화면이 없으면(SSH 접속, 로그인 전 등) 조용히 물러납니다. 얼굴을 못 그리는
+것 때문에 주행과 안전 정지가 막히면 안 됩니다.
 """
 
+import glob
 import os
 
 import cv2
@@ -25,7 +26,10 @@ from potner_base.face import (
     DEFAULT_EXPRESSION,
     face_for,
     mouth_points,
+    parse_drm_modes,
+    scale,
     to_pixels,
+    viewport_for,
 )
 
 WINDOW = "potner_face"
@@ -35,25 +39,28 @@ BACKGROUND = (24, 20, 18)
 FACE_COLOR = (120, 230, 140)
 REASON_COLOR = (90, 90, 90)
 
+# 해상도를 못 알아냈을 때 씁니다. 7인치 LCD 기준입니다.
+FALLBACK_SIZE = (1024, 600)
+
 
 class FaceDisplay(Node):
     def __init__(self):
         super().__init__("face_display")
 
-        self.declare_parameter("width", 800)
-        self.declare_parameter("height", 480)
-        self.declare_parameter("fullscreen", False)
+        # 0 이면 연결된 화면의 해상도를 커널에서 읽어 씁니다. 7인치 LCD 와
+        # 시험용 모니터의 해상도가 달라도 설정을 안 고치게 하려는 것입니다.
+        self.declare_parameter("width", 0)
+        self.declare_parameter("height", 0)
+        self.declare_parameter("fullscreen", True)
         # 브링업 중에는 어떤 사유로 이 표정이 왔는지 보이는 편이 낫습니다.
         self.declare_parameter("show_reason", True)
-        # 화면이 없을 때 그린 얼굴을 파일로 남깁니다. 젯슨은 DisplayPort 만
-        # 내고 패시브 어댑터로는 모니터가 안 붙는데, 그걸 기다리는 동안에도
-        # MQTT -> 표정 경로는 확인할 수 있어야 합니다.
+        # 화면이 없을 때 그린 얼굴을 파일로 남깁니다.
         self.declare_parameter("save_path", "")
 
-        self._width = self.get_parameter("width").value
-        self._height = self.get_parameter("height").value
         self._show_reason = self.get_parameter("show_reason").value
         self._save_path = self.get_parameter("save_path").value
+        self._width, self._height = self._resolve_size()
+        self._view = viewport_for(self._width, self._height)
 
         self._expression = DEFAULT_EXPRESSION
         self._reason = None
@@ -63,6 +70,45 @@ class FaceDisplay(Node):
         self.create_subscription(String, "display/reason", self._on_reason, 10)
 
         self._window_ready = self._open_window()
+
+    # --- 화면 크기 ---
+
+    def _resolve_size(self):
+        width = self.get_parameter("width").value
+        height = self.get_parameter("height").value
+        if width > 0 and height > 0:
+            return width, height
+
+        detected = self._detect_size()
+        if detected:
+            self.get_logger().info(f"화면 해상도 감지: {detected[0]}x{detected[1]}")
+            return detected
+
+        self.get_logger().warn(
+            f"화면 해상도를 못 읽어 {FALLBACK_SIZE[0]}x{FALLBACK_SIZE[1]} 로 "
+            f"그립니다. 다르면 width/height 를 직접 주세요."
+        )
+        return FALLBACK_SIZE
+
+    def _detect_size(self):
+        """연결된 DRM 커넥터의 선호 해상도를 읽습니다.
+
+        xrandr 이 없어도 되고 X 세션 밖에서도 읽힙니다. 젯슨은 DisplayPort
+        하나만 내므로 보통 커넥터가 하나입니다.
+        """
+        for status_path in sorted(glob.glob("/sys/class/drm/*/status")):
+            try:
+                with open(status_path, encoding="utf-8") as handle:
+                    if handle.read().strip() != "connected":
+                        continue
+                modes_path = os.path.join(os.path.dirname(status_path), "modes")
+                with open(modes_path, encoding="utf-8") as handle:
+                    size = parse_drm_modes(handle.read())
+            except OSError:
+                continue
+            if size:
+                return size
+        return None
 
     # --- 창 ---
 
@@ -87,7 +133,7 @@ class FaceDisplay(Node):
             else:
                 cv2.resizeWindow(WINDOW, self._width, self._height)
         except cv2.error as exc:
-            # 젯슨에서 X 권한이 없거나 xcb 플러그인이 없을 때 여기로 옵니다.
+            # X 권한이 없거나 GTK 백엔드를 못 띄울 때 여기로 옵니다.
             self.get_logger().error(f"창을 열지 못했습니다: {exc}")
             return False
 
@@ -142,8 +188,8 @@ class FaceDisplay(Node):
                 self._save_path = ""  # 매 프레임 같은 에러를 쏟지 않게
 
     def _draw_eye(self, canvas, eye) -> None:
-        center = to_pixels((eye.center_x, eye.center_y), self._width, self._height)
-        radius = int(round(eye.radius * min(self._width, self._height)))
+        center = to_pixels((eye.center_x, eye.center_y), self._view)
+        radius = scale(eye.radius, self._view)
 
         # openness 가 낮으면 세로로 눌린 타원이 됩니다. 0 에 가까우면 선이
         # 되는데, 두께가 0 이면 아무것도 안 그려지므로 최소 1 을 보장합니다.
@@ -152,15 +198,14 @@ class FaceDisplay(Node):
 
     def _draw_mouth(self, canvas, face) -> None:
         left, middle, right = (
-            to_pixels(point, self._width, self._height)
-            for point in mouth_points(face)
+            to_pixels(point, self._view) for point in mouth_points(face)
         )
 
-        thickness = max(2, int(round(0.012 * min(self._width, self._height))))
+        thickness = max(2, scale(0.012, self._view))
 
-        # 세 점을 지나는 곡선. 이차 베지에를 점으로 찍어 폴리라인으로 그립니다.
-        # cv2 에 곡선 함수가 없어서 직접 계산합니다. 제어점은 가운데 점을
-        # 두 배로 당겨야 곡선이 그 점을 실제로 지납니다.
+        # 세 점을 지나는 곡선. cv2 에 곡선 함수가 없어서 이차 베지에를 점으로
+        # 찍어 폴리라인으로 그립니다. 제어점은 가운데 점을 두 배로 당겨야
+        # 곡선이 그 점을 실제로 지납니다.
         control = (2 * middle[0] - (left[0] + right[0]) / 2,
                    2 * middle[1] - (left[1] + right[1]) / 2)
 

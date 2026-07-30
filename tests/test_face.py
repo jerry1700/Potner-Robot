@@ -18,7 +18,10 @@ from potner_base.face import (
     VERY_HAPPY,
     face_for,
     mouth_points,
+    parse_drm_modes,
+    scale,
     to_pixels,
+    viewport_for,
 )
 
 ALL_EXPRESSIONS = [VERY_HAPPY, HAPPY, NEUTRAL, SAD]
@@ -121,9 +124,74 @@ def test_기본_표정은_무표정이다():
     assert DEFAULT_EXPRESSION == NEUTRAL
 
 
+def test_정사각_영역을_가운데_잡는다():
+    """가로세로를 그대로 곱하면 16:9 화면에서 얼굴이 가로로 늘어납니다.
+    짧은 쪽을 한 변으로 하는 정사각형을 가운데 둡니다."""
+    view = viewport_for(1024, 600)  # 7인치 LCD
+
+    assert view.size == 600
+    assert view.x == 212  # (1024 - 600) // 2
+    assert view.y == 0
+
+
+def test_정사각_화면이면_여백이_없다():
+    view = viewport_for(600, 600)
+    assert (view.x, view.y, view.size) == (0, 0, 600)
+
+
+def test_세로가_긴_화면도_처리한다():
+    view = viewport_for(600, 1024)
+    assert view.size == 600
+    assert (view.x, view.y) == (0, 212)
+
+
 def test_픽셀_변환():
-    assert to_pixels((0.5, 0.5), 800, 480) == (400, 240)
-    assert to_pixels((0.0, 1.0), 800, 480) == (0, 480)
+    view = viewport_for(1024, 600)
+
+    assert to_pixels((0.5, 0.5), view) == (212 + 300, 300)
+    assert to_pixels((0.0, 0.0), view) == (212, 0)
+    assert to_pixels((1.0, 1.0), view) == (212 + 600, 600)
+
+
+def test_길이는_원점을_더하지_않는다():
+    """반지름이나 선 굵기에 여백을 더하면 눈이 화면을 덮습니다."""
+    view = viewport_for(1024, 600)
+    assert scale(0.075, view) == 45
+
+
+def test_해상도_감지():
+    """/sys/class/drm/<커넥터>/modes 의 첫 줄이 선호 모드입니다."""
+    modes = "\n".join(["1024x600", "800x600", "640x480", ""])
+
+    assert parse_drm_modes(modes) == (1024, 600)
+    assert parse_drm_modes("1920x1080") == (1920, 1080)
+
+
+def test_읽을_수_없는_줄은_건너뛴다():
+    """커넥터 이름이나 빈 줄이 섞여 있어도 해상도를 찾아야 합니다."""
+    modes = "\n".join(["", "  ", "1024x600"])
+
+    assert parse_drm_modes(modes) == (1024, 600)
+
+
+@pytest.mark.parametrize(
+    "text",
+    ["", "\n\n", "알 수 없음", "x", "1024x", "x600", "abcxdef", "0x0"],
+)
+def test_해상도를_못_읽으면_None(text):
+    """못 읽었는데 0 이나 엉뚱한 값을 돌려주면 얼굴이 화면 밖으로 나갑니다."""
+    assert parse_drm_modes(text) is None
+
+
+def test_얼굴이_화면_안에_들어간다():
+    """정규화 좌표가 0~1 이므로 뷰포트 안에 반드시 들어가야 합니다."""
+    view = viewport_for(1024, 600)
+    face = face_for(VERY_HAPPY)
+
+    for point in mouth_points(face):
+        x, y = to_pixels(point, view)
+        assert view.x <= x <= view.x + view.size
+        assert view.y <= y <= view.y + view.size
 
 
 def test_표정_이름이_서버_명세와_같다():
