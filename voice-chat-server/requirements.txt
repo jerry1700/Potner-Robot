@@ -1,0 +1,6 @@
+# 음성 대화 서버 의존성 (레포 루트 requirements.txt에 더해 설치)
+fastapi>=0.115
+uvicorn[standard]>=0.30
+python-multipart>=0.0.9
+requests>=2.31
+PyYAML>=6.0
