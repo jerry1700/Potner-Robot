@@ -112,6 +112,29 @@ async function startRecording() {
   hint.textContent = "듣고 있어요... 다시 누르면 전송돼요";
 }
 
+// ---- 오디오 조각 순차 재생 큐 (문장별 mp3가 스트리밍으로 도착한다)
+const audioQueue = [];
+let audioPlaying = false;
+
+function enqueueAudio(src) {
+  audioQueue.push(src);
+  if (!audioPlaying) playNextAudio();
+}
+
+function playNextAudio() {
+  const src = audioQueue.shift();
+  if (!src) { audioPlaying = false; return; }
+  audioPlaying = true;
+  const player = new Audio(src);
+  player.onended = playNextAudio;
+  player.onerror = playNextAudio;
+  // 사용자 제스처(버튼)에서 시작된 흐름이라 자동 재생이 허용된다.
+  player.play().catch(() => {
+    audioPlaying = false;
+    addBubble("meta", "🔇 자동 재생이 막혔어요. 화면을 한번 탭해 주세요.");
+  });
+}
+
 async function sendAudio(blob) {
   busy = true;
   micBtn.disabled = true;
@@ -124,20 +147,31 @@ async function sendAudio(blob) {
   form.append("session_id", SESSION_ID);
 
   try {
-    const resp = await fetch("/api/voice-chat", { method: "POST", body: form });
-    const data = await resp.json();
-    thinking.remove();
-    if (!data.success) {
+    const resp = await fetch("/api/voice-chat-stream", { method: "POST", body: form });
+    // 스트림 열기 전 실패(413 등)는 SSE가 아니라 JSON으로 온다.
+    if (!(resp.headers.get("content-type") || "").includes("text/event-stream")) {
+      const data = await resp.json();
+      thinking.remove();
       addBubble("error", data.message || "무언가 잘못됐어요. 다시 시도해 주세요.");
       return;
     }
-    addBubble("user", data.user_text);
-    addBubble("robot", data.reply_text);
-    if (data.audio_b64) {
-      // 사용자 제스처(버튼)에서 시작된 흐름이라 자동 재생이 허용된다.
-      new Audio(`data:${data.audio_mime};base64,${data.audio_b64}`).play()
-        .catch(() => addBubble("meta", "🔇 자동 재생이 막혔어요. 화면을 한번 탭해 주세요."));
-    }
+
+    let robotBubble = null;
+    await readSse(resp, (event, data) => {
+      if (event === "user_text") {
+        thinking.remove();
+        addBubble("user", data.text);
+      } else if (event === "text_delta") {
+        if (!robotBubble) robotBubble = addBubble("robot", "");
+        robotBubble.textContent += data.text;
+        chat.scrollTop = chat.scrollHeight;
+      } else if (event === "audio_chunk") {
+        enqueueAudio(`data:${data.audio_mime};base64,${data.audio_b64}`);
+      } else if (event === "error") {
+        thinking.remove();
+        addBubble("error", data.message);
+      }
+    });
   } catch (e) {
     thinking.remove();
     addBubble("error", "서버에 연결하지 못했어요. 같은 Wi-Fi인지 확인해 주세요.");
@@ -146,6 +180,31 @@ async function sendAudio(blob) {
     micBtn.disabled = false;
     micBtn.textContent = "🎤";
     hint.textContent = "눌러서 녹음 시작";
+  }
+}
+
+// fetch 스트림에서 SSE 프레임(event:/data:, 빈 줄 경계)을 파싱해 콜백에 넘긴다.
+async function readSse(resp, onEvent) {
+  const reader = resp.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    let boundary;
+    while ((boundary = buffer.indexOf("\n\n")) !== -1) {
+      const frame = buffer.slice(0, boundary);
+      buffer = buffer.slice(boundary + 2);
+      let event = "";
+      let dataLine = "";
+      for (const line of frame.split("\n")) {
+        if (line.startsWith("event:")) event = line.slice(6).trim();
+        else if (line.startsWith("data:")) dataLine = line.slice(5).trim();
+      }
+      if (!event || !dataLine) continue; // keep-alive 주석 등
+      try { onEvent(event, JSON.parse(dataLine)); } catch { /* 무시 */ }
+    }
   }
 }
 
