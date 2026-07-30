@@ -20,16 +20,21 @@ DEFAULT_MARKER_SIZE = 0.044
 # beacon 이미지를 뽑을 때 쓴 사전. 바꾸면 기존 마커를 못 읽습니다.
 DEFAULT_DICTIONARY = cv2.aruco.DICT_6X6_250
 
+# focal_calibrator 로 실측한 값 (BRIO 100, 640x480, 2026-07-28).
+# 카메라나 해상도를 바꾸면 다시 재세요. 이 값이 틀리면 거리뿐 아니라
+# solvePnP 가 내는 기울기까지 어긋나 정렬 판정이 흔들립니다.
+#
+# 숫자를 여러 곳에 적으면 한쪽만 고쳐서 어긋납니다. 노드의 파라미터
+# 기본값도 이 상수를 참조하고, potner_params.yaml 과 일치하는지는
+# tests/test_config_consistency.py 가 확인합니다.
+DEFAULT_FOCAL_LENGTH_PX = 876.4
+
 
 @dataclass
 class CameraIntrinsics:
-    """카메라 내부 파라미터.
+    """카메라 내부 파라미터."""
 
-    TODO: focal_calibrator 로 보정할 것. 아래 기본값은 추정치라 거리 오차가
-    있습니다. 도킹 정밀도가 안 나오면 여기가 원인일 가능성이 큽니다.
-    """
-
-    focal_length_px: float = 600.0
+    focal_length_px: float = DEFAULT_FOCAL_LENGTH_PX
     center_x: float = 320.0
     center_y: float = 240.0
 
@@ -44,7 +49,16 @@ class CameraIntrinsics:
         )
 
     def distortion(self):
-        # TODO: 체커보드 캘리브레이션 후 실제 왜곡 계수로 교체
+        """왜곡 계수를 0으로 둡니다.
+
+        두 거리에서 실측해 이 가정이 타당함을 확인했습니다 (2026-07-28).
+        50cm 에서 -0.2%, 15cm 에서 +0.2% 로 **부호가 갈립니다.** 렌즈 왜곡이
+        있으면 거리에 따라 한 방향으로 누적되므로, 부호가 반대인 것은 계통
+        오차가 없다는 뜻입니다. 남은 오차는 측정 노이즈입니다.
+
+        도킹은 15~50cm 범위에서만 쓰므로 체커보드 캘리브레이션까지 갈
+        필요가 없습니다. 더 먼 거리를 쓰게 되면 그때 다시 확인하세요.
+        """
         return np.zeros((4, 1), dtype=np.float32)
 
 

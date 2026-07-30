@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+<title>오린카 음성 대화</title>
+<style>
+  :root {
+    --green: #3a9d5d; --green-dark: #2e7d4a; --red: #d84a4a;
+    --bg: #f4f7f4; --card: #ffffff; --text: #1f2d23;
+  }
+  * { box-sizing: border-box; margin: 0; }
+  body {
+    font-family: "Apple SD Gothic Neo", "Noto Sans KR", sans-serif;
+    background: var(--bg); color: var(--text);
+    display: flex; flex-direction: column; height: 100dvh;
+  }
+  header { padding: 14px 18px; background: var(--green); color: #fff; }
+  header h1 { font-size: 17px; font-weight: 700; }
+  header p  { font-size: 12px; opacity: .85; margin-top: 2px; }
+
+  #chat { flex: 1; overflow-y: auto; padding: 14px; display: flex; flex-direction: column; gap: 10px; }
+  .bubble { max-width: 82%; padding: 10px 13px; border-radius: 14px; font-size: 15px; line-height: 1.45; white-space: pre-wrap; }
+  .user  { align-self: flex-end; background: var(--green); color: #fff; border-bottom-right-radius: 4px; }
+  .robot { align-self: flex-start; background: var(--card); border: 1px solid #dfe7df; border-bottom-left-radius: 4px; }
+  .meta  { align-self: center; font-size: 12px; color: #7b887d; }
+  .error { align-self: center; font-size: 13px; color: var(--red); background: #fdecec; padding: 8px 12px; border-radius: 10px; }
+
+  footer { padding: 14px 18px 26px; display: flex; flex-direction: column; align-items: center; gap: 8px; background: var(--bg); }
+  #mic {
+    width: 84px; height: 84px; border-radius: 50%; border: none; cursor: pointer;
+    background: var(--green); color: #fff; font-size: 34px;
+    box-shadow: 0 4px 14px rgba(46,125,74,.35); transition: transform .1s, background .2s;
+    -webkit-tap-highlight-color: transparent;
+  }
+  #mic:active { transform: scale(.94); }
+  #mic.recording { background: var(--red); animation: pulse 1.2s infinite; }
+  #mic:disabled { background: #a8b8ac; box-shadow: none; }
+  @keyframes pulse { 50% { box-shadow: 0 0 0 16px rgba(216,74,74,.15); } }
+  #hint { font-size: 13px; color: #61705f; min-height: 18px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>🌱 오린카</h1>
+  <p>버튼을 누르고 말한 뒤, 다시 눌러 전송하세요</p>
+</header>
+
+<div id="chat">
+  <div class="meta">같은 Wi-Fi에서 오린카와 음성으로 대화해요</div>
+</div>
+
+<footer>
+  <button id="mic" aria-label="녹음">🎤</button>
+  <div id="hint">눌러서 녹음 시작</div>
+</footer>
+
+<script>
+"use strict";
+const SESSION_ID = "voice-web";
+const micBtn = document.getElementById("mic");
+const hint = document.getElementById("hint");
+const chat = document.getElementById("chat");
+
+let mediaRecorder = null;
+let chunks = [];
+let busy = false;
+
+function addBubble(cls, text) {
+  const div = document.createElement("div");
+  div.className = cls === "error" ? "error" : `bubble ${cls}`;
+  div.textContent = text;
+  chat.appendChild(div);
+  chat.scrollTop = chat.scrollHeight;
+  return div;
+}
+
+function pickMimeType() {
+  // Chrome/Android → webm+opus, iOS Safari → mp4. 지원하는 첫 형식을 쓴다.
+  for (const t of ["audio/webm;codecs=opus", "audio/webm", "audio/mp4", "audio/ogg"]) {
+    if (window.MediaRecorder && MediaRecorder.isTypeSupported(t)) return t;
+  }
+  return "";
+}
+
+async function startRecording() {
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+    // http://IP 접속은 보안 컨텍스트가 아니라 마이크가 막힌다 (README 참고).
+    addBubble("error",
+      "이 브라우저에서 마이크를 열 수 없어요. HTTPS로 접속했는지, " +
+      "또는 Chrome 플래그(insecure origin) 설정을 했는지 확인해 주세요.");
+    return;
+  }
+  let stream;
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+  } catch (e) {
+    addBubble("error", "마이크 권한이 거부됐어요. 브라우저 설정에서 허용해 주세요.");
+    return;
+  }
+  chunks = [];
+  const mimeType = pickMimeType();
+  mediaRecorder = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
+  mediaRecorder.ondataavailable = (e) => { if (e.data.size) chunks.push(e.data); };
+  mediaRecorder.onstop = () => {
+    stream.getTracks().forEach((t) => t.stop());
+    sendAudio(new Blob(chunks, { type: mediaRecorder.mimeType }));
+  };
+  mediaRecorder.start();
+  micBtn.classList.add("recording");
+  micBtn.textContent = "⏹";
+  hint.textContent = "듣고 있어요... 다시 누르면 전송돼요";
+}
+
+// ---- 오디오 조각 순차 재생 큐 (문장별 mp3가 스트리밍으로 도착한다)
+const audioQueue = [];
+let audioPlaying = false;
+
+function enqueueAudio(src) {
+  audioQueue.push(src);
+  if (!audioPlaying) playNextAudio();
+}
+
+function playNextAudio() {
+  const src = audioQueue.shift();
+  if (!src) { audioPlaying = false; return; }
+  audioPlaying = true;
+  const player = new Audio(src);
+  player.onended = playNextAudio;
+  player.onerror = playNextAudio;
+  // 사용자 제스처(버튼)에서 시작된 흐름이라 자동 재생이 허용된다.
+  player.play().catch(() => {
+    audioPlaying = false;
+    addBubble("meta", "🔇 자동 재생이 막혔어요. 화면을 한번 탭해 주세요.");
+  });
+}
+
+async function sendAudio(blob) {
+  busy = true;
+  micBtn.disabled = true;
+  hint.textContent = "오린카가 생각하고 있어요...";
+  const thinking = addBubble("meta", "💭 생각 중...");
+
+  const form = new FormData();
+  const ext = blob.type.includes("mp4") ? "m4a" : blob.type.includes("ogg") ? "ogg" : "webm";
+  form.append("audio", blob, `speech.${ext}`);
+  form.append("session_id", SESSION_ID);
+
+  try {
+    const resp = await fetch("/api/voice-chat-stream", { method: "POST", body: form });
+    // 스트림 열기 전 실패(413 등)는 SSE가 아니라 JSON으로 온다.
+    if (!(resp.headers.get("content-type") || "").includes("text/event-stream")) {
+      const data = await resp.json();
+      thinking.remove();
+      addBubble("error", data.message || "무언가 잘못됐어요. 다시 시도해 주세요.");
+      return;
+    }
+
+    let robotBubble = null;
+    await readSse(resp, (event, data) => {
+      if (event === "user_text") {
+        thinking.remove();
+        addBubble("user", data.text);
+      } else if (event === "text_delta") {
+        if (!robotBubble) robotBubble = addBubble("robot", "");
+        robotBubble.textContent += data.text;
+        chat.scrollTop = chat.scrollHeight;
+      } else if (event === "audio_chunk") {
+        enqueueAudio(`data:${data.audio_mime};base64,${data.audio_b64}`);
+      } else if (event === "error") {
+        thinking.remove();
+        addBubble("error", data.message);
+      }
+    });
+  } catch (e) {
+    thinking.remove();
+    addBubble("error", "서버에 연결하지 못했어요. 같은 Wi-Fi인지 확인해 주세요.");
+  } finally {
+    busy = false;
+    micBtn.disabled = false;
+    micBtn.textContent = "🎤";
+    hint.textContent = "눌러서 녹음 시작";
+  }
+}
+
+// fetch 스트림에서 SSE 프레임(event:/data:, 빈 줄 경계)을 파싱해 콜백에 넘긴다.
+async function readSse(resp, onEvent) {
+  const reader = resp.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    let boundary;
+    while ((boundary = buffer.indexOf("\n\n")) !== -1) {
+      const frame = buffer.slice(0, boundary);
+      buffer = buffer.slice(boundary + 2);
+      let event = "";
+      let dataLine = "";
+      for (const line of frame.split("\n")) {
+        if (line.startsWith("event:")) event = line.slice(6).trim();
+        else if (line.startsWith("data:")) dataLine = line.slice(5).trim();
+      }
+      if (!event || !dataLine) continue; // keep-alive 주석 등
+      try { onEvent(event, JSON.parse(dataLine)); } catch { /* 무시 */ }
+    }
+  }
+}
+
+micBtn.addEventListener("click", () => {
+  if (busy) return;
+  if (mediaRecorder && mediaRecorder.state === "recording") {
+    micBtn.classList.remove("recording");
+    mediaRecorder.stop();
+  } else {
+    startRecording();
+  }
+});
+
+// 페이지를 벗어날 때 대화를 저장해 다음 접속에서 이어지게 한다.
+window.addEventListener("pagehide", () => {
+  navigator.sendBeacon &&
+    navigator.sendBeacon("/api/session/end", new URLSearchParams({ session_id: SESSION_ID }));
+});
+</script>
+</body>
+</html>

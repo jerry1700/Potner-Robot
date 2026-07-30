@@ -25,6 +25,12 @@ from geometry_msgs.msg import Vector3
 from rclpy.node import Node
 from rclpy.qos import qos_profile_sensor_data
 
+from potner_perception.calibration import (
+    distance_error_percent,
+    horizontal_fov_deg,
+    suggest_focal_length,
+)
+
 # 표본이 이보다 흔들리면 마커나 카메라가 고정되지 않았다고 봅니다 (m).
 SPREAD_WARNING = 0.02
 
@@ -35,13 +41,15 @@ class FocalCalibrator(Node):
 
         self.declare_parameter("true_distance", 0.5)
         self.declare_parameter("samples", 50)
-        self.declare_parameter("current_focal", 600.0)
+        self.declare_parameter("current_focal", 876.4)
         self.declare_parameter("max_yaw_deg", 15.0)
+        self.declare_parameter("image_width", 640)
 
         self.true_distance = self.get_parameter("true_distance").value
         self.target_samples = self.get_parameter("samples").value
         self.current_focal = self.get_parameter("current_focal").value
         self.max_yaw = self.get_parameter("max_yaw_deg").value
+        self.image_width = self.get_parameter("image_width").value
 
         self.distances = []
         self.rejected = 0
@@ -83,8 +91,10 @@ class FocalCalibrator(Node):
         # 통째로 끌고 가는 걸 막습니다.
         measured = statistics.median(self.distances)
         spread = statistics.pstdev(self.distances)
-        suggested = self.current_focal * (measured / self.true_distance)
-        error = (measured - self.true_distance) / self.true_distance * 100.0
+        suggested = suggest_focal_length(
+            self.current_focal, measured, self.true_distance
+        )
+        error = distance_error_percent(measured, self.true_distance)
 
         print("")
         print("카메라 초점거리 보정 결과")
@@ -96,8 +106,11 @@ class FocalCalibrator(Node):
         print(f"  현재 오차          {error:+.1f} %")
         print("")
         print(f"  focal_length_px    {self.current_focal:.1f} -> {suggested:.1f}")
+        print(f"  수평 화각          "
+              f"{horizontal_fov_deg(suggested, self.image_width):.1f}도")
         print("")
         print("  config/potner_params.yaml 의 marker_detector 항목에 반영하세요.")
+        print("  수평 화각이 카메라 사양과 크게 다르면 마커 크기를 다시 재세요.")
 
         if spread > SPREAD_WARNING:
             print("")

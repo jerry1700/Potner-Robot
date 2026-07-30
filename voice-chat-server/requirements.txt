@@ -1,0 +1,11 @@
+# Voice chat server deps (install in addition to repo-root requirements.txt)
+fastapi>=0.115
+uvicorn[standard]>=0.30
+python-multipart>=0.0.9
+requests>=2.31
+PyYAML>=6.0
+# 로컬 STT (STT_BACKEND=local, 기본값). GPU 가속용 CUDA wheel 포함 —
+# 설치/로드 실패 시 서버가 GMS whisper-1로 자동 폴백하므로 없어도 동작은 한다.
+faster-whisper>=1.0
+nvidia-cublas-cu12
+nvidia-cudnn-cu12

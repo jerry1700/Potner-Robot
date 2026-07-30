@@ -16,6 +16,7 @@ from sensor_msgs.msg import Image
 from std_msgs.msg import Int32
 
 from potner_perception.marker_pose import (
+    DEFAULT_FOCAL_LENGTH_PX,
     DEFAULT_MARKER_SIZE,
     CameraIntrinsics,
     create_detector,
@@ -35,7 +36,7 @@ class MarkerDetector(Node):
         super().__init__("marker_detector")
 
         self.declare_parameter("marker_size", DEFAULT_MARKER_SIZE)
-        self.declare_parameter("focal_length_px", 600.0)
+        self.declare_parameter("focal_length_px", DEFAULT_FOCAL_LENGTH_PX)
         self.declare_parameter("image_width", 640)
         self.declare_parameter("image_height", 480)
 
