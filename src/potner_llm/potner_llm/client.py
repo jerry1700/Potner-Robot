@@ -3,12 +3,21 @@ from __future__ import annotations
 import json
 import logging
 import os
+import socket
 import time
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
 from typing import Any, Optional
 
+from .exceptions import (
+    LlmApiError,
+    LlmAuthError,
+    LlmConnectionError,
+    LlmRateLimitError,
+    LlmResponseParseError,
+    LlmTimeoutError,
+)
 from .prompts import SYSTEM_PLANT
 from .tools import TOOL_DEFINITIONS, ToolHub
 
@@ -54,6 +63,7 @@ class LlmClient:
     max_tokens: int = 256
     max_retries: int = 2
     retry_backoff_seconds: float = 0.5
+    request_timeout_seconds: float = 60.0
 
     def available(self) -> bool:
         if not self.enabled:
@@ -154,7 +164,7 @@ class LlmClient:
         while True:
             req = urllib.request.Request(url, data=req_body, headers=headers, method="POST")
             try:
-                with urllib.request.urlopen(req, timeout=60) as resp:
+                with urllib.request.urlopen(req, timeout=self.request_timeout_seconds) as resp:
                     raw_text = resp.read().decode("utf-8")
             except urllib.error.HTTPError as exc:
                 detail = exc.read().decode("utf-8", errors="replace")
@@ -172,12 +182,19 @@ class LlmClient:
                     attempt += 1
                     continue
                 logger.error("LLM HTTP %d (giving up): %s", exc.code, detail)
-                raise RuntimeError(f"LLM HTTP {exc.code}: {detail}") from exc
+                if exc.code in {401, 403}:
+                    raise LlmAuthError(f"LLM auth failed (HTTP {exc.code}): {detail}") from exc
+                if exc.code == 429:
+                    raise LlmRateLimitError(f"LLM rate limited: {detail}") from exc
+                raise LlmApiError(exc.code, detail) from exc
             except urllib.error.URLError as exc:
+                # 연결 단계 timeout은 URLError(reason=timeout)로 온다.
+                is_timeout = isinstance(exc.reason, (socket.timeout, TimeoutError))
                 if attempt < self.max_retries:
                     delay = self.retry_backoff_seconds * (2**attempt)
                     logger.warning(
-                        "LLM connection error, retrying in %.1fs (attempt %d/%d): %s",
+                        "LLM %s, retrying in %.1fs (attempt %d/%d): %s",
+                        "timeout" if is_timeout else "connection error",
                         delay,
                         attempt + 1,
                         self.max_retries,
@@ -187,7 +204,28 @@ class LlmClient:
                     attempt += 1
                     continue
                 logger.error("LLM connection error (giving up): %s", exc.reason)
-                raise RuntimeError(f"LLM connection error: {exc.reason}") from exc
+                if is_timeout:
+                    raise LlmTimeoutError(
+                        f"LLM timeout after {self.request_timeout_seconds}s"
+                    ) from exc
+                raise LlmConnectionError(f"LLM connection error: {exc.reason}") from exc
+            except (socket.timeout, TimeoutError) as exc:
+                # 응답 본문을 읽는 도중의 timeout은 wrap 없이 그대로 올라온다.
+                if attempt < self.max_retries:
+                    delay = self.retry_backoff_seconds * (2**attempt)
+                    logger.warning(
+                        "LLM read timeout, retrying in %.1fs (attempt %d/%d)",
+                        delay,
+                        attempt + 1,
+                        self.max_retries,
+                    )
+                    time.sleep(delay)
+                    attempt += 1
+                    continue
+                logger.error("LLM read timeout (giving up)")
+                raise LlmTimeoutError(
+                    f"LLM timeout after {self.request_timeout_seconds}s"
+                ) from exc
 
             try:
                 data = json.loads(raw_text)
@@ -211,7 +249,7 @@ class LlmClient:
                 logger.error(
                     "LLM 응답 JSON 파싱 실패 (giving up): %s | body[:200]=%r", exc, raw_text[:200]
                 )
-                raise RuntimeError(f"LLM response JSON parse error: {exc}") from exc
+                raise LlmResponseParseError(f"LLM response JSON parse error: {exc}") from exc
 
             usage = data.get("usage")
             if usage:
@@ -248,6 +286,9 @@ def create_llm_client(config: dict[str, Any]) -> LlmClient:
     retry_backoff_seconds = float(
         os.environ.get("OPENAI_RETRY_BACKOFF_SECONDS") or llm.get("retry_backoff_seconds", 0.5)
     )
+    request_timeout_seconds = float(
+        os.environ.get("OPENAI_TIMEOUT_SECONDS") or llm.get("request_timeout_seconds", 60.0)
+    )
 
     return LlmClient(
         provider=provider,
@@ -258,6 +299,7 @@ def create_llm_client(config: dict[str, Any]) -> LlmClient:
         max_tokens=max_tokens,
         max_retries=max_retries,
         retry_backoff_seconds=retry_backoff_seconds,
+        request_timeout_seconds=request_timeout_seconds,
     )
 
 
