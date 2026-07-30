@@ -65,6 +65,10 @@ class FaceDisplay(Node):
         self._expression = DEFAULT_EXPRESSION
         self._reason = None
         self._dirty = True
+        # 그린 결과를 들고 있습니다. 창에 올리는 일(show)과 그리는 일(render)을
+        # 나눈 이유는 아래 show() 주석에 있습니다.
+        self._canvas = None
+        self._fullscreen_pending = False
 
         self.create_subscription(String, "display/expression", self._on_expression, 10)
         self.create_subscription(String, "display/reason", self._on_reason, 10)
@@ -127,9 +131,11 @@ class FaceDisplay(Node):
         try:
             cv2.namedWindow(WINDOW, cv2.WINDOW_NORMAL)
             if self.get_parameter("fullscreen").value:
-                cv2.setWindowProperty(
-                    WINDOW, cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_FULLSCREEN
-                )
+                # ★ 전체화면은 여기서 걸지 않고 첫 프레임을 올린 뒤에 겁니다.
+                #   GTK 백엔드는 첫 imshow 전까지 창을 실제로 만들지 않아서,
+                #   지금 설정하면 조용히 무시됩니다. 로그에는 "시작"이 찍히고
+                #   화면에는 아무것도 안 뜨는 상태가 됩니다.
+                self._fullscreen_pending = True
             else:
                 cv2.resizeWindow(WINDOW, self._width, self._height)
         except cv2.error as exc:
@@ -176,8 +182,7 @@ class FaceDisplay(Node):
                 cv2.FONT_HERSHEY_SIMPLEX, 0.5, REASON_COLOR, 1, cv2.LINE_AA,
             )
 
-        if self._window_ready:
-            cv2.imshow(WINDOW, canvas)
+        self._canvas = canvas
 
         if self._save_path:
             if cv2.imwrite(self._save_path, canvas):
@@ -186,6 +191,28 @@ class FaceDisplay(Node):
                 # 경로가 없거나 권한이 없을 때입니다. 확장자를 빼먹어도 실패합니다.
                 self.get_logger().error(f"저장 실패: {self._save_path}")
                 self._save_path = ""  # 매 프레임 같은 에러를 쏟지 않게
+
+    def show(self) -> None:
+        """그려둔 얼굴을 창에 올립니다. **매 주기 호출합니다.**
+
+        표정이 바뀔 때만 imshow 하면, 창이 가려졌다 드러날 때(expose) 내용을
+        다시 그려줄 사람이 없어서 빈 화면이 됩니다. 캔버스는 이미 만들어져
+        있으니 올리는 비용은 무시할 만합니다.
+        """
+        if not self._window_ready or self._canvas is None:
+            return
+
+        cv2.imshow(WINDOW, self._canvas)
+
+        if self._fullscreen_pending:
+            # 첫 프레임을 올린 뒤라 이제 창이 실제로 존재합니다.
+            try:
+                cv2.setWindowProperty(
+                    WINDOW, cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_FULLSCREEN
+                )
+            except cv2.error as exc:
+                self.get_logger().warn(f"전체화면 설정 실패: {exc}")
+            self._fullscreen_pending = False
 
     def _draw_eye(self, canvas, eye) -> None:
         center = to_pixels((eye.center_x, eye.center_y), self._view)
@@ -236,6 +263,8 @@ def main(args=None):
             if node._dirty:
                 node.render()
                 node._dirty = False
+
+            node.show()
 
             if node._window_ready and cv2.waitKey(1) == 27:  # ESC
                 break
