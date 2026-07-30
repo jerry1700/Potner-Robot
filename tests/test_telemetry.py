@@ -10,6 +10,8 @@ from datetime import datetime, timedelta, timezone
 import pytest
 
 from potner_bridge.telemetry import (
+    DEFAULT_EXPRESSION,
+    KNOWN_EXPRESSIONS,
     ROBOT_SENSOR_TYPES,
     ROBOT_STATES,
     UNIT_FOR_TYPE,
@@ -20,6 +22,7 @@ from potner_bridge.telemetry import (
     battery_message,
     battery_topic,
     command_topic,
+    parse_expression_command,
     heartbeat_message,
     heartbeat_topic,
     iso_utc,
@@ -276,3 +279,52 @@ def test_한글이_이스케이프되지_않는다():
     """서버 로그에서 읽을 수 있어야 합니다."""
     payload = sensor_message("한글-01", SensorType.ILLUMINANCE, 1.0, MOMENT)
     assert "한글-01" in payload
+
+
+def test_표정_명령을_해석한다():
+    payload = '{"plantId":"abc","expression":"HAPPY","reason":"SUNLIGHT"}'
+    assert parse_expression_command(payload) == ("HAPPY", "SUNLIGHT")
+
+
+def test_표정_명령은_bytes_도_받는다():
+    """paho 가 payload 를 bytes 로 줍니다."""
+    payload = b'{"expression":"SAD","reason":"DRY"}'
+    assert parse_expression_command(payload) == ("SAD", "DRY")
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        "",
+        "not json",
+        "[]",
+        "null",
+        '{"expression":"EXCITED"}',       # 서버가 값을 늘린 경우
+        '{"expression":"happy"}',         # 소문자
+        '{"expression":null}',
+        "{}",
+    ],
+)
+def test_해석할_수_없으면_기본_표정을_돌려준다(payload):
+    """★ 예외를 내지 않아야 합니다.
+
+    표정을 그리는 일이 실패해서 로봇이 멈추면 안 됩니다. 그리고 서버가 표정을
+    추가할 때 로봇 코드를 고치지 않아도 되어야 합니다.
+    """
+    expression, _ = parse_expression_command(payload)
+    assert expression == DEFAULT_EXPRESSION
+
+
+def test_모르는_표정이어도_사유는_남긴다():
+    """서버가 값을 늘렸다는 걸 로그로 알 수 있어야 합니다."""
+    payload = '{"expression":"EXCITED","reason":"NEW_FEATURE"}'
+    assert parse_expression_command(payload) == (DEFAULT_EXPRESSION, "NEW_FEATURE")
+
+
+def test_사유가_문자열이_아니면_버린다():
+    expression, reason = parse_expression_command('{"expression":"HAPPY","reason":42}')
+    assert (expression, reason) == ("HAPPY", None)
+
+
+def test_표정_목록이_명세의_네_가지다():
+    assert KNOWN_EXPRESSIONS == {"VERY_HAPPY", "HAPPY", "NEUTRAL", "SAD"}

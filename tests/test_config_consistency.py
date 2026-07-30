@@ -59,6 +59,7 @@ NODES = [
     ("base_driver", "potner_base", "base_driver_node"),
     ("plant_sensors", "potner_base", "plant_sensors_node"),
     ("speaker", "potner_base", "speaker_node"),
+    ("face_display", "potner_base", "face_display_node"),
     ("safety", "potner_mission", "safety_node"),
     ("mission_manager", "potner_mission", "mission_manager_node"),
     ("docking_server", "potner_docking", "docking_server_node"),

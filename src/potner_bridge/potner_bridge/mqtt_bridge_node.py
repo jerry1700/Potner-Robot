@@ -32,9 +32,11 @@ from potner_bridge.telemetry import (
     SensorType,
     battery_message,
     battery_topic,
+    command_topic,
     heartbeat_message,
     heartbeat_topic,
     now_utc,
+    parse_expression_command,
     sensor_message,
     sensor_topic,
     state_message,
@@ -92,6 +94,12 @@ class MqttBridge(Node):
         )
         self.create_subscription(String, "mission/state", self._on_state, 10)
 
+        # 서버가 정한 표정을 face_display 로 넘깁니다. 로봇은 표정을 판단하지
+        # 않습니다 — 식물 상태를 아는 쪽이 서버라서 그쪽이 정합니다.
+        self._expression_pub = self.create_publisher(String, "display/expression", 10)
+        self._reason_pub = self.create_publisher(String, "display/reason", 10)
+
+        self._command_topic = command_topic(self._device_id)
         self._client = self._connect()
         self.create_timer(
             self.get_parameter("publish_period").value, self._publish_sensors
@@ -129,6 +137,7 @@ class MqttBridge(Node):
         client = self._new_client(f"{self._device_id}-bridge")
         client.username_pw_set(self._device_id, password)
         client.on_connect = self._on_connect
+        client.on_message = self._on_message
 
         try:
             client.connect(host, port, keepalive=60)
@@ -165,13 +174,40 @@ class MqttBridge(Node):
         """
         # VERSION2 는 ReasonCode 객체, VERSION1 은 int 를 넘깁니다.
         code = getattr(reason_code, "value", reason_code)
-        if code == 0:
-            self.get_logger().info("MQTT 인증 성공")
-        else:
+        if code != 0:
             self.get_logger().error(
                 f"MQTT 접속 거부 (rc={code}) — 계정명이 device_id 와 같은지, "
                 f"비밀번호가 맞는지 확인하세요."
             )
+            return
+
+        self.get_logger().info("MQTT 인증 성공")
+
+        # 재접속마다 다시 구독해야 합니다. clean session 이라 브로커에 구독이
+        # 남지 않아서, 이걸 setup 에서 한 번만 하면 재접속 뒤로 표정이 끊깁니다.
+        client.subscribe(self._command_topic, qos=1)
+        self.get_logger().info(f"명령 구독: {self._command_topic}")
+
+    def _on_message(self, client, userdata, message):
+        """서버가 보낸 명령. ACL 이 command/# 만 읽기 허용합니다."""
+        if not message.topic.endswith("/command/expression"):
+            # 서버가 명령을 늘렸습니다. 무시하되 남겨서 알 수 있게 합니다.
+            self.get_logger().info(
+                f"처리하지 않는 명령: {message.topic}", throttle_duration_sec=60.0
+            )
+            return
+
+        expression, reason = parse_expression_command(message.payload)
+        self._expression_pub.publish(String(data=expression))
+        self._reason_pub.publish(String(data=reason or ""))
+
+        # 같은 값이 30초마다 반복되므로 바뀔 때만 알리면 조용합니다. 그런데
+        # 그러면 "표정이 계속 NEUTRAL 일 때" 도착하고 있는지 알 수 없어서,
+        # 도착 자체는 간격을 두고 남깁니다.
+        self.get_logger().info(
+            f"표정 수신: {expression} (사유 {reason or '없음'})",
+            throttle_duration_sec=120.0,
+        )
 
     # --- ROS ---
 
