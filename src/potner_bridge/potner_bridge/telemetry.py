@@ -54,6 +54,27 @@ class RobotState:
     GREETING = "GREETING"
 
 
+class Expression:
+    """디스플레이 표정 (DEVICE-MQTT.md 9절). 서버 -> 젯슨.
+
+    ★ 서버가 값을 늘릴 수 있습니다. 모르는 값이 왔다고 로봇이 죽거나 표정이
+      사라지면 안 되므로, 아래 목록에 없는 값은 DEFAULT_EXPRESSION 으로
+      떨어뜨립니다. 그래야 서버가 표정을 추가할 때 로봇을 안 고칩니다.
+    """
+
+    VERY_HAPPY = "VERY_HAPPY"
+    HAPPY = "HAPPY"
+    NEUTRAL = "NEUTRAL"
+    SAD = "SAD"
+
+
+KNOWN_EXPRESSIONS = frozenset(
+    value for name, value in vars(Expression).items() if not name.startswith("_")
+)
+
+DEFAULT_EXPRESSION = Expression.NEUTRAL
+
+
 UNIT_FOR_TYPE = {
     SensorType.TEMPERATURE: SensorUnit.CELSIUS,
     SensorType.HUMIDITY: SensorUnit.PERCENT,
@@ -204,6 +225,43 @@ def state_message(
         },
         ensure_ascii=False,
     )
+
+
+def parse_expression_command(payload):
+    """서버가 내려보낸 표정 명령을 해석합니다 (DEVICE-MQTT.md 9절).
+
+    **예외를 내지 않습니다.** 브로커에서 오는 값이라 형식을 신뢰할 수 없고,
+    표정을 그리는 일이 실패해서 로봇이 멈추면 안 됩니다. 해석할 수 없으면
+    기본 표정을 돌려줍니다.
+
+    같은 값이 30초마다 반복해서 옵니다. 중복을 걸러낼 필요 없이 마지막 값을
+    그리면 되고, 노드를 재시작해도 한 주기 안에 표정을 되찾습니다.
+
+    Args:
+        payload: JSON 문자열 또는 bytes
+
+    Returns:
+        (expression, reason) — expression 은 항상 KNOWN_EXPRESSIONS 안의 값.
+        reason 은 문자열이거나 None
+    """
+    if isinstance(payload, (bytes, bytearray)):
+        payload = payload.decode("utf-8", errors="ignore")
+
+    try:
+        body = json.loads(payload)
+    except (ValueError, TypeError):
+        return DEFAULT_EXPRESSION, None
+
+    if not isinstance(body, dict):
+        return DEFAULT_EXPRESSION, None
+
+    expression = body.get("expression")
+    if expression not in KNOWN_EXPRESSIONS:
+        # 서버가 표정을 추가했을 수 있습니다. 로그로 알 수 있게 사유는 남깁니다.
+        return DEFAULT_EXPRESSION, body.get("reason")
+
+    reason = body.get("reason")
+    return expression, reason if isinstance(reason, str) else None
 
 
 def battery_message(
