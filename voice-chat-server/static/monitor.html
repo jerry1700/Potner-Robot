@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>오린카 대화 모니터</title>
+<style>
+  :root {
+    --green: #3a9d5d; --green-dark: #2e7d4a; --red: #d84a4a;
+    --bg: #f4f7f4; --card: #ffffff; --text: #1f2d23;
+  }
+  * { box-sizing: border-box; margin: 0; }
+  body {
+    font-family: "Apple SD Gothic Neo", "Noto Sans KR", sans-serif;
+    background: var(--bg); color: var(--text);
+    display: flex; flex-direction: column; height: 100dvh;
+  }
+  header {
+    padding: 14px 18px; background: var(--green); color: #fff;
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  header h1 { font-size: 17px; font-weight: 700; }
+  #status { font-size: 13px; display: flex; align-items: center; gap: 6px; }
+  #dot { width: 9px; height: 9px; border-radius: 50%; background: #ffd54a; }
+  #dot.on { background: #7bf29b; }
+  #dot.off { background: #ff8a8a; }
+
+  #chat {
+    flex: 1; overflow-y: auto; padding: 18px;
+    display: flex; flex-direction: column; gap: 10px;
+    max-width: 760px; width: 100%; margin: 0 auto;
+  }
+  .bubble { max-width: 76%; padding: 10px 13px; border-radius: 14px; font-size: 15px; line-height: 1.45; white-space: pre-wrap; }
+  .user  { align-self: flex-end; background: var(--green); color: #fff; border-bottom-right-radius: 4px; }
+  .robot { align-self: flex-start; background: var(--card); border: 1px solid #dfe7df; border-bottom-left-radius: 4px; }
+  .meta  { align-self: center; font-size: 12px; color: #7b887d; }
+  .error { align-self: center; font-size: 13px; color: var(--red); background: #fdecec; padding: 8px 12px; border-radius: 10px; }
+
+  /* 질문 종료 → LLM 답변 시작까지 걸린 시간 시각화 */
+  .latency { align-self: center; width: 100%; max-width: 320px; margin: 2px 0 4px; }
+  .latency-label { font-size: 12px; color: #56695a; text-align: center; margin-bottom: 4px; }
+  .latency-label b { color: var(--green-dark); }
+  .latency-sub { color: #93a190; }
+  .latency-bar {
+    height: 8px; border-radius: 5px; background: #e4ece4; overflow: hidden;
+    display: flex; width: 100%;
+  }
+  .latency-seg { height: 100%; }
+  .latency-seg.stt { background: #7bb9e8; }
+  .latency-seg.think { background: #f2a154; }
+  .latency-legend { display: flex; justify-content: center; gap: 12px; font-size: 11px; color: #8b988c; margin-top: 3px; }
+  .latency-legend span { display: inline-flex; align-items: center; gap: 4px; }
+  .latency-legend i { width: 8px; height: 8px; border-radius: 2px; display: inline-block; }
+  .latency-legend .stt-dot { background: #7bb9e8; }
+  .latency-legend .think-dot { background: #f2a154; }
+
+  footer {
+    padding: 12px 18px 18px; background: var(--bg);
+    display: flex; gap: 8px; max-width: 760px; width: 100%; margin: 0 auto;
+  }
+  #input {
+    flex: 1; padding: 11px 14px; font-size: 15px; font-family: inherit;
+    border: 1px solid #cfdccf; border-radius: 12px; outline: none; background: var(--card);
+  }
+  #input:focus { border-color: var(--green); }
+  #send {
+    padding: 0 20px; border: none; border-radius: 12px; cursor: pointer;
+    background: var(--green); color: #fff; font-size: 15px; font-weight: 700;
+  }
+  #send:disabled { background: #a8b8ac; cursor: default; }
+</style>
+</head>
+<body>
+<header>
+  <h1>🌱 오린카 대화 모니터</h1>
+  <div id="status"><span id="dot"></span><span id="statusText">연결 중...</span></div>
+</header>
+
+<div id="chat">
+  <div class="meta">휴대폰 음성 대화가 실시간으로 표시되고, 아래 입력창으로 같은 대화에 끼어들 수 있어요</div>
+</div>
+
+<footer>
+  <input id="input" type="text" placeholder="메시지를 입력하세요..." autocomplete="off">
+  <button id="send">전송</button>
+</footer>
+
+<script>
+"use strict";
+// 휴대폰 음성 페이지(index.html)와 같은 세션 → 음성·타이핑이 하나의 대화로 이어진다.
+const SESSION_ID = "voice-web";
+const CLIENT_ID = Math.random().toString(36).slice(2); // 내가 보낸 턴의 SSE 중복 렌더 방지용
+
+const chat = document.getElementById("chat");
+const dot = document.getElementById("dot");
+const statusText = document.getElementById("statusText");
+const input = document.getElementById("input");
+const sendBtn = document.getElementById("send");
+
+function addBubble(cls, text) {
+  const div = document.createElement("div");
+  div.className = cls === "meta" || cls === "error" ? cls : `bubble ${cls}`;
+  div.textContent = text;
+  chat.appendChild(div);
+  chat.scrollTop = chat.scrollHeight;
+  return div;
+}
+
+function timeLabel() {
+  return new Date().toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+}
+
+// 질문이 끝난 시점(녹음 업로드 도착 / 타이핑 전송)부터 LLM이 실제 답변을
+// 시작한 시점(첫 text_delta)까지의 시간을 막대로 시각화한다.
+// 전체 응답 완료 시간(elapsed_ms)과는 다르다 — 그건 답변이 다 끝날 때까지의 시간.
+const LATENCY_SCALE_MS = 6000; // 이 길이를 막대 100%로 잡는다 (그 이상은 꽉 채움)
+
+function addLatencyBar(turn) {
+  if (turn.response_start_ms == null) return; // 구버전 페이로드는 시각화 없이 스킵
+  const sttMs = turn.stt_ms || 0;
+  const thinkMs = Math.max(0, turn.first_token_ms || 0);
+  const totalMs = turn.response_start_ms;
+
+  const totalPct = Math.min(100, (totalMs / LATENCY_SCALE_MS) * 100);
+  const sttShare = totalMs > 0 ? (sttMs / totalMs) * totalPct : 0;
+  const thinkShare = totalMs > 0 ? (thinkMs / totalMs) * totalPct : totalPct;
+
+  const wrap = document.createElement("div");
+  wrap.className = "latency";
+  const totalSec = (totalMs / 1000).toFixed(1);
+  const sttSec = (sttMs / 1000).toFixed(1);
+  const thinkSec = (thinkMs / 1000).toFixed(1);
+
+  wrap.innerHTML = `
+    <div class="latency-label">⏱ 질문 종료 → 답변 시작 <b>${totalSec}초</b></div>
+    <div class="latency-bar">
+      ${sttMs > 0 ? `<div class="latency-seg stt" style="width:${sttShare}%"></div>` : ""}
+      <div class="latency-seg think" style="width:${thinkShare}%"></div>
+    </div>
+    <div class="latency-legend">
+      ${sttMs > 0 ? `<span><i class="stt-dot"></i>STT ${sttSec}s</span>` : ""}
+      <span><i class="think-dot"></i>생각 ${thinkSec}s</span>
+    </div>`;
+  chat.appendChild(wrap);
+  chat.scrollTop = chat.scrollHeight;
+}
+
+function addTurn(turn, sourceIcon) {
+  addBubble("meta", `${timeLabel()} · ${sourceIcon}`);
+  addLatencyBar(turn);
+  addBubble("user", turn.user_text);
+  addBubble("robot", turn.reply_text);
+}
+
+// ---- 실시간 수신 (SSE) — 끊기면 EventSource가 자동 재접속한다.
+const source = new EventSource("/api/events");
+
+source.onopen = () => {
+  dot.className = "on";
+  statusText.textContent = "실시간 연결됨";
+};
+
+source.onerror = () => {
+  dot.className = "off";
+  statusText.textContent = "연결 끊김 — 재접속 중...";
+};
+
+source.onmessage = (e) => {
+  let turn;
+  try { turn = JSON.parse(e.data); } catch { return; }
+  if (turn.client_id && turn.client_id === CLIENT_ID) return; // 내가 보낸 턴은 이미 그렸다
+  addTurn(turn, turn.source === "text" ? "⌨️ 다른 창" : "🎤 음성");
+};
+
+// ---- 타이핑 전송
+async function sendText() {
+  const text = input.value.trim();
+  if (!text || sendBtn.disabled) return;
+  input.value = "";
+  sendBtn.disabled = true;
+  addBubble("user", text);
+  const thinking = addBubble("meta", "💭 생각 중...");
+
+  try {
+    const resp = await fetch("/api/text-chat", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text, session_id: SESSION_ID, client_id: CLIENT_ID }),
+    });
+    const data = await resp.json();
+    thinking.remove();
+    if (!data.success) {
+      addBubble("error", data.message || "무언가 잘못됐어요. 다시 시도해 주세요.");
+      return;
+    }
+    addLatencyBar(data);
+    addBubble("robot", data.reply_text);
+  } catch {
+    thinking.remove();
+    addBubble("error", "서버에 연결하지 못했어요.");
+  } finally {
+    sendBtn.disabled = false;
+    input.focus();
+  }
+}
+
+sendBtn.addEventListener("click", sendText);
+input.addEventListener("keydown", (e) => {
+  // isComposing 가드 — 한글 조합 중 Enter가 조합을 끊고 전송해버리는 것 방지
+  if (e.key === "Enter" && !e.isComposing) sendText();
+});
+</script>
+</body>
+</html>
