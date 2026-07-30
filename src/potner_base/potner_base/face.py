@@ -47,11 +47,17 @@ class Face:
     mouth_y: float
 
 
+# 배치를 정하는 네 값입니다. 전부 정사각 영역(짧은 변) 기준 비율입니다.
+# 7인치 LCD(1024x600)에서 여백이 남지 않도록 얼굴이 영역을 꽉 채우게
+# 잡았습니다. 값을 키울 때는 아래 두 가지가 깨지지 않는지 보세요.
+#   - 눈이 영역을 벗어나지 않을 것 (EYE_Y ± EYE_RADIUS, 0.5 ± EYE_X_OFFSET)
+#   - 활짝 웃는 입이 아래로 처져도 영역 안일 것 (MOUTH_Y + 입너비/2)
+# tests/test_face.py 가 둘 다 검사합니다.
 CENTER_X = 0.5
-EYE_Y = 0.38
-EYE_X_OFFSET = 0.18
-EYE_RADIUS = 0.075
-MOUTH_Y = 0.62
+EYE_Y = 0.30
+EYE_X_OFFSET = 0.29
+EYE_RADIUS = 0.12
+MOUTH_Y = 0.68
 
 
 def _face(expression: str, curvature: float, mouth_width: float, openness: float) -> Face:
@@ -74,10 +80,10 @@ def _face(expression: str, curvature: float, mouth_width: float, openness: float
 # face_for() 가 기본 표정으로 떨어뜨립니다.
 _FACES = {
     # 활짝 웃을 때는 눈이 감깁니다. 입만 키우면 무섭게 보입니다.
-    VERY_HAPPY: _face(VERY_HAPPY, curvature=1.0, mouth_width=0.30, openness=0.15),
-    HAPPY: _face(HAPPY, curvature=0.55, mouth_width=0.28, openness=1.0),
-    NEUTRAL: _face(NEUTRAL, curvature=0.0, mouth_width=0.22, openness=1.0),
-    SAD: _face(SAD, curvature=-0.5, mouth_width=0.24, openness=0.7),
+    VERY_HAPPY: _face(VERY_HAPPY, curvature=1.0, mouth_width=0.42, openness=0.15),
+    HAPPY: _face(HAPPY, curvature=0.55, mouth_width=0.40, openness=1.0),
+    NEUTRAL: _face(NEUTRAL, curvature=0.0, mouth_width=0.32, openness=1.0),
+    SAD: _face(SAD, curvature=-0.5, mouth_width=0.36, openness=0.7),
 }
 
 
@@ -111,12 +117,69 @@ def mouth_points(face: Face):
     )
 
 
-def to_pixels(point, width: int, height: int):
-    """정규화 좌표를 픽셀로 바꿉니다.
+@dataclass(frozen=True)
+class Viewport:
+    """얼굴을 그릴 정사각 영역 (픽셀 단위)."""
 
-    가로세로를 따로 곱하므로 화면 비율이 달라지면 얼굴도 늘어납니다. 7인치
-    LCD 로 옮길 때 비율이 많이 다르면 짧은 쪽 기준으로 정사각형 영역을 잡아
-    쓰는 편이 낫습니다.
+    x: int
+    y: int
+    size: int
+
+
+def viewport_for(width: int, height: int) -> Viewport:
+    """화면 안에서 얼굴을 그릴 정사각형을 잡습니다.
+
+    가로세로를 그대로 곱하면 16:9 화면에서 눈이 양옆으로 벌어지고 얼굴이
+    가로로 늘어납니다. **짧은 쪽을 한 변으로 하는 정사각형을 가운데 두면**
+    어느 해상도에서도 같은 얼굴이 나옵니다. 7인치 LCD 로 옮길 때도 그대로
+    씁니다.
     """
+    size = min(width, height)
+    return Viewport(x=(width - size) // 2, y=(height - size) // 2, size=size)
+
+
+def to_pixels(point, view: Viewport):
+    """정규화 좌표(0~1)를 화면 픽셀로 바꿉니다."""
     x, y = point
-    return int(round(x * width)), int(round(y * height))
+    return (
+        view.x + int(round(x * view.size)),
+        view.y + int(round(y * view.size)),
+    )
+
+
+def scale(fraction: float, view: Viewport) -> int:
+    """반지름이나 선 굵기처럼 '길이'인 값을 픽셀로 바꿉니다.
+
+    좌표와 달리 원점을 더하지 않습니다.
+    """
+    return int(round(fraction * view.size))
+
+
+def parse_drm_modes(text: str):
+    """커널이 알려주는 화면 해상도를 읽습니다.
+
+    /sys/class/drm/<커넥터>/modes 의 **첫 줄이 선호 모드**입니다.
+
+        1920x1080
+        1680x1050
+        ...
+
+    xrandr 같은 도구 없이 해상도를 알 수 있어서 이 방법을 씁니다. 다만 값이
+    틀리면 얼굴이 화면 밖으로 나가거나 한쪽에 몰리므로 파싱을 여기 두고
+    테스트가 잡게 합니다.
+
+    Returns:
+        (가로, 세로) 또는 읽을 수 없으면 None
+    """
+    for line in text.splitlines():
+        line = line.strip()
+        width, separator, height = line.partition("x")
+        if not separator:
+            continue
+        try:
+            values = (int(width), int(height))
+        except ValueError:
+            continue
+        if values[0] > 0 and values[1] > 0:
+            return values
+    return None

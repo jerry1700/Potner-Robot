@@ -141,11 +141,12 @@ person_detector:
 
 face_display:
   ros__parameters:
-    # 지금은 HDMI 모니터에 창으로 띄웁니다. 7인치 LCD 로 옮기면 그 해상도로
-    # 바꾸고 fullscreen 을 true 로 하세요.
-    width: 800
-    height: 480
-    fullscreen: false
+    # 0 이면 연결된 화면의 해상도를 커널에서 읽어 씁니다
+    # (/sys/class/drm/<커넥터>/modes). 7인치 LCD 는 1024x600 입니다.
+    # 시험용 모니터와 해상도가 달라도 설정을 안 고치게 하려고 자동으로 둡니다.
+    width: 0
+    height: 0
+    fullscreen: true
 
     # 어떤 사유로 이 표정이 왔는지 화면 아래에 적습니다. 브링업 중에는 켜두는
     # 편이 낫고, 시연 때는 끄세요.
