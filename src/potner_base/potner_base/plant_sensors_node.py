@@ -37,6 +37,7 @@ except ImportError:  # 센서 없는 개발 PC에서도 파일을 열어볼 수 
     i2c_msg = None
 
 BH1750_ADDR = 0x23
+BH1750_POWER_ON = 0x01
 BH1750_ONE_TIME_HIRES = 0x20
 BH1750_MEASURE_DELAY = 0.18  # 데이터시트 최대 측정 시간
 
@@ -97,15 +98,21 @@ class PlantSensors(Node):
             "INA226": INA226_ADDR,
         }
         present = set()
+        failures = {}
 
         try:
             with SMBus(self._bus_number) as bus:
                 for name, address in candidates.items():
                     try:
-                        bus.write_quick(address)
+                        # read_byte 를 쓰는 이유가 있습니다. SMBus 의
+                        # write_quick(빈 쓰기)은 테그라 I2C 드라이버가
+                        # 지원하지 않아서 모든 주소에서 실패합니다.
+                        # i2cdetect 의 -r 옵션이 쓰는 방식과 같습니다.
+                        # 세 칩 모두 읽기에 부작용이 없습니다.
+                        bus.read_byte(address)
                         present.add(name)
-                    except OSError:
-                        pass
+                    except OSError as exc:
+                        failures[name] = exc
         except (OSError, PermissionError) as exc:
             self.get_logger().error(
                 f"I2C 버스 {self._bus_number} 를 열 수 없습니다: {exc} — "
@@ -114,8 +121,14 @@ class PlantSensors(Node):
             return set()
 
         for name, address in candidates.items():
-            mark = "응답" if name in present else "없음"
-            self.get_logger().info(f"  {name} (0x{address:02X}) {mark}")
+            if name in present:
+                self.get_logger().info(f"  {name} (0x{address:02X}) 응답")
+            else:
+                # 실패 이유를 함께 남깁니다. 그냥 "없음" 만 찍으면 배선
+                # 문제인지 드라이버 문제인지 구분할 수 없습니다.
+                self.get_logger().info(
+                    f"  {name} (0x{address:02X}) 없음 — {failures.get(name)}"
+                )
 
         if not present:
             self.get_logger().warn(
@@ -126,6 +139,10 @@ class PlantSensors(Node):
 
     def _read_lux(self):
         with SMBus(self._bus_number) as bus:
+            # 일회성 측정 모드는 측정을 끝내면 스스로 절전 상태로 들어갑니다.
+            # 그래서 매번 전원을 먼저 켜야 합니다. 이걸 빼먹으면 계속 0 이
+            # 나옵니다.
+            bus.write_byte(BH1750_ADDR, BH1750_POWER_ON)
             bus.write_byte(BH1750_ADDR, BH1750_ONE_TIME_HIRES)
             time.sleep(BH1750_MEASURE_DELAY)
             message = i2c_msg.read(BH1750_ADDR, 2)

@@ -1,71 +1,107 @@
-"""mqtt_bridge — Spring Boot 서버 및 스테이션과 이어지는 유일한 창구.
+"""mqtt_bridge — Spring Boot 서버와 이어지는 유일한 창구.
 
-ROS 2와 MQTT는 서로 다른 세계입니다. 로봇 내부는 ROS 토픽으로,
-집 밖과는 MQTT로 이야기합니다. 이 노드가 그 사이를 번역합니다.
+ROS 2와 MQTT는 서로 다른 세계입니다. 로봇 내부는 ROS 토픽으로, 집 밖과는
+MQTT로 이야기합니다. 이 노드가 그 사이를 번역합니다.
 
-    ROS -> MQTT   식물 센서값, 로봇 상태, 배터리
-    MQTT -> ROS   서버가 내려보낸 대사, 스테이션 도착 신호, 원격 명령
+    올려보냄   센서 측정값 (측정값 하나당 메시지 하나), 하트비트,
+               로봇 상태, 배터리 잔량
+
+메시지 형식은 potner_bridge.telemetry 에 모아뒀습니다. 기준 문서는
+docs/DEVICE-MQTT.md 이고 서버 팀이 관리합니다.
+
+브로커 ACL 이 접근 범위를 정합니다 (DEVICE-MQTT.md 3절).
+
+    pattern write potner/device/%u/sensor|status|result/#
+    pattern read  potner/device/%u/command/#
+
+`%u` 는 접속 계정명입니다. 그래서 **자기 device_uid 아래만** 오갈 수 있고,
+다른 기기의 토픽이나 potner/station/... 은 브로커가 거부합니다. 거부는
+발행 쪽에 에러로 돌아오지 않고 조용히 버려지므로 찾기 어렵습니다.
 
 주의: 이 노드가 죽거나 인터넷이 끊겨도 주행과 안전 정지는 계속 돌아야
 합니다. 그래서 Nav2나 safety 노드는 여기에 전혀 의존하지 않습니다.
 """
 
-import json
+import os
 
 import rclpy
 from rclpy.node import Node
-from std_msgs.msg import Bool, Float32, String
+from std_msgs.msg import Float32, String
+
+from potner_bridge.telemetry import (
+    SensorType,
+    battery_message,
+    battery_topic,
+    heartbeat_message,
+    heartbeat_topic,
+    now_utc,
+    sensor_message,
+    sensor_topic,
+    state_message,
+    state_topic,
+)
 
 try:
     import paho.mqtt.client as mqtt
 except ImportError:
     mqtt = None
 
-# 스테이션(Raspberry-master)이 대기 온습도·조도를 올려보내는 토픽.
-# 양쪽 팀이 같은 이름을 써야 합니다.
-STATION_TELEMETRY_TOPIC = "potner/station/telemetry"
+# ROS 토픽 -> 서버 SensorType 대응.
+# 온도와 습도는 스테이션이 재서 서버로 직접 올립니다.
+# 배터리는 센서가 아니라 전용 토픽으로 갑니다 (DEVICE-MQTT.md 8절).
+SENSOR_SOURCES = (
+    ("plant/moisture", SensorType.SOIL_MOISTURE),
+    ("plant/lux", SensorType.ILLUMINANCE),
+)
 
 
 class MqttBridge(Node):
     def __init__(self):
         super().__init__("mqtt_bridge")
 
-        self.declare_parameter("broker_host", "localhost")
-        self.declare_parameter("broker_port", 1883)
-        self.declare_parameter("device_id", "potner-01")
-        self.declare_parameter("publish_period", 10.0)  # 센서 업로드 주기(초)
+        self.declare_parameter("broker_host", "i15e104.p.ssafy.io")
+        self.declare_parameter("broker_port", 1884)
+        self.declare_parameter("device_id", "jetson-01")
+        # 비밀번호는 저장소에 두지 않습니다. 환경변수 이름만 설정에 적고
+        # 값은 젯슨의 셸 환경에서 읽습니다.
+        self.declare_parameter("password_env", "POTNER_MQTT_PASSWORD")
+        self.declare_parameter("publish_period", 10.0)
+        self.declare_parameter("heartbeat_period", 30.0)
+        self.declare_parameter("battery_period", 60.0)
 
         self._device_id = self.get_parameter("device_id").value
+        self._sensor_topic = sensor_topic(self._device_id)
+        self._heartbeat_topic = heartbeat_topic(self._device_id)
+        self._state_topic = state_topic(self._device_id)
+        self._battery_topic = battery_topic(self._device_id)
+
+        # 센서 종류별로 마지막 측정값과 측정 시각을 들고 있습니다.
+        # measuredAt 은 발행 시각이 아니라 실제로 읽은 시각이어야 합니다.
         self._latest = {}
+        self._battery = None
+        self._state = None
+        self._state_changed_at = None
 
-        # ROS -> MQTT 로 올려보낼 값들
-        for topic, key in (
-            ("plant/moisture", "moisture"),
-            ("plant/lux", "lux"),
-            ("plant/temperature", "temperature"),
-            ("battery/percent", "battery"),
-        ):
+        for topic, sensor_type in SENSOR_SOURCES:
             self.create_subscription(
-                Float32, topic, self._capture(key), 10
+                Float32, topic, self._capture(sensor_type), 10
             )
-        self.create_subscription(String, "mission/state", self._capture_str("state"), 10)
 
-        # 스테이션 서비스 요청은 모아 올리지 않고 즉시 중계합니다. 도킹이
-        # 끝난 직후 급수나 송풍을 시작해야 하는데, 텔레메트리 주기(10초)를
-        # 기다리면 로봇이 스테이션 앞에서 멍하니 서 있게 됩니다.
-        self.create_subscription(String, "station/request", self._on_request, 10)
-
-        # MQTT -> ROS 로 내려올 값들
-        self._speech_pub = self.create_publisher(String, "tts/say", 10)
-        self._station_pub = self.create_publisher(Bool, "station/docked", 10)
-
-        # 대기 온도는 스테이션이 잽니다. 로봇에도 DHT11 이 있지만 리눅스에서
-        # 원선 프로토콜을 읽는 건 마이크로초 타이밍이 필요해 자주 실패합니다.
-        # 발표자료 아키텍처대로 스테이션(ESP32)이 재서 올려보내는 값을 씁니다.
-        self._temperature_pub = self.create_publisher(Float32, "plant/temperature", 10)
+        self.create_subscription(
+            Float32, "battery/percent", self._on_battery, 10
+        )
+        self.create_subscription(String, "mission/state", self._on_state, 10)
 
         self._client = self._connect()
-        self.create_timer(self.get_parameter("publish_period").value, self._upload)
+        self.create_timer(
+            self.get_parameter("publish_period").value, self._publish_sensors
+        )
+        self.create_timer(
+            self.get_parameter("heartbeat_period").value, self._publish_heartbeat
+        )
+        self.create_timer(
+            self.get_parameter("battery_period").value, self._publish_battery
+        )
 
     # --- MQTT ---
 
@@ -76,102 +112,183 @@ class MqttBridge(Node):
 
         host = self.get_parameter("broker_host").value
         port = self.get_parameter("broker_port").value
-        client = mqtt.Client(client_id=self._device_id)
+
+        # 브로커는 익명 접속을 받지 않습니다. 계정명은 device_uid 와 같아야
+        # ACL 의 %u 치환이 자기 토픽을 가리킵니다.
+        env_name = self.get_parameter("password_env").value
+        password = os.environ.get(env_name)
+        if not password:
+            self.get_logger().error(
+                f"{env_name} 환경변수가 없습니다 — 브로커가 접속을 거부합니다. "
+                f"~/.bashrc 에 export {env_name}='...' 를 넣으세요."
+            )
+            return None
+
+        # client_id 는 브로커에서 유일해야 합니다. 겹치면 서로를 계속 끊어냅니다.
+        # 서버가 potner-backend-prod 계열을 쓰므로 기기 이름에 접미사를 붙입니다.
+        client = self._new_client(f"{self._device_id}-bridge")
+        client.username_pw_set(self._device_id, password)
         client.on_connect = self._on_connect
-        client.on_message = self._on_message
 
         try:
             client.connect(host, port, keepalive=60)
             client.loop_start()
-            self.get_logger().info(f"MQTT 연결: {host}:{port}")
+            self.get_logger().info(
+                f"MQTT 연결 시도: {host}:{port} (deviceId={self._device_id})"
+            )
         except Exception as exc:
             # 인터넷이 없어도 로봇 자체는 돌아야 하므로 죽지 않습니다.
             self.get_logger().error(f"MQTT 연결 실패: {exc}")
             return None
         return client
 
-    def _on_connect(self, client, userdata, flags, rc):
-        client.subscribe(f"potner/{self._device_id}/speech")
-        client.subscribe("potner/station/+/docked")
-        client.subscribe(STATION_TELEMETRY_TOPIC)
+    def _new_client(self, client_id: str):
+        """paho 1.x / 2.x 를 함께 지원합니다.
 
-    def _on_message(self, client, userdata, message):
-        topic = message.topic
-        payload = message.payload.decode("utf-8", errors="ignore")
-
-        if topic.endswith("/speech"):
-            # 서버 LLM이 만든 대사. 음성 합성은 speaker 노드가 합니다.
-            self._speech_pub.publish(String(data=payload))
-        elif topic.endswith("/docked"):
-            self._station_pub.publish(Bool(data=payload.strip() in ("1", "true", "True")))
-        elif topic == STATION_TELEMETRY_TOPIC:
-            self._on_station_telemetry(payload)
-
-    def _on_station_telemetry(self, payload: str):
-        """스테이션이 올려보낸 환경값에서 대기 온도를 꺼냅니다.
-
-        ★ 스테이션(Raspberry-master) 담당자와 토픽 이름과 JSON 키를 맞춰야
-          합니다. 한쪽만 바꾸면 조용히 값이 안 들어옵니다.
+        2.x 는 CallbackAPIVersion 을 첫 인자로 요구합니다. 생략해도 지금은
+        경고만 내고 VERSION1 로 동작하지만, 다음 major 에서 끊길 자리입니다.
+        젯슨의 apt 패키지가 1.x 라 양쪽을 다 받아둡니다.
         """
-        try:
-            data = json.loads(payload)
-        except json.JSONDecodeError:
-            self.get_logger().warn(
-                f"스테이션 환경값이 JSON 이 아닙니다: {payload[:40]}",
-                throttle_duration_sec=30.0,
+        if hasattr(mqtt, "CallbackAPIVersion"):
+            return mqtt.Client(
+                mqtt.CallbackAPIVersion.VERSION2, client_id=client_id
             )
-            return
+        return mqtt.Client(client_id=client_id)
 
-        temperature = data.get("temperature")
-        if temperature is None:
-            return
+    def _on_connect(self, client, userdata, flags, reason_code, properties=None):
+        """접속 성공 여부를 남깁니다.
 
-        try:
-            self._temperature_pub.publish(Float32(data=float(temperature)))
-        except (TypeError, ValueError):
-            self.get_logger().warn(
-                f"온도값을 숫자로 읽을 수 없습니다: {temperature!r}",
-                throttle_duration_sec=30.0,
+        인증 실패는 connect() 가 아니라 여기서 드러납니다. connect() 는
+        TCP 연결까지만 보고 돌아오기 때문입니다. rc=5 가 계정·비밀번호
+        오류이고, 이걸 로그로 안 남기면 "연결됨" 만 보고 값이 안 들어오는
+        이유를 못 찾습니다.
+        """
+        # VERSION2 는 ReasonCode 객체, VERSION1 은 int 를 넘깁니다.
+        code = getattr(reason_code, "value", reason_code)
+        if code == 0:
+            self.get_logger().info("MQTT 인증 성공")
+        else:
+            self.get_logger().error(
+                f"MQTT 접속 거부 (rc={code}) — 계정명이 device_id 와 같은지, "
+                f"비밀번호가 맞는지 확인하세요."
             )
 
     # --- ROS ---
 
-    def _capture(self, key):
+    def _capture(self, sensor_type: str):
+        """센서값을 종류별로 저장하는 콜백을 만듭니다."""
+
         def callback(msg):
-            self._latest[key] = float(msg.data)
+            self._latest[sensor_type] = (float(msg.data), now_utc())
 
         return callback
 
-    def _capture_str(self, key):
-        def callback(msg):
-            self._latest[key] = msg.data
+    def _on_battery(self, msg: Float32):
+        self._battery = (float(msg.data), now_utc())
 
-        return callback
+    def _on_state(self, msg: String):
+        """상태가 바뀔 때만 서버에 알립니다.
 
-    def _on_request(self, msg: String):
-        """스테이션에 서비스 시작을 요청합니다 (급수, 송풍 등)."""
+        mission_manager 는 판단 주기(2초)마다 같은 상태를 계속 발행합니다.
+        서버 처리는 멱등해서 반복 발행도 받아주지만, 그대로 중계하면
+        브로커에 쓸데없는 메시지가 쌓이므로 변화만 골라냅니다.
+        """
+        if msg.data == self._state:
+            return
+
+        self._state = msg.data
+        self._state_changed_at = now_utc()
+        self._publish_state()
+
+    # --- 발행 ---
+
+    def _publish(self, topic: str, payload: str, label: str) -> bool:
+        """QoS 1 로 보냅니다.
+
+        QoS 0 은 브로커까지 도달을 보장하지 않습니다. 무선 구간이 있고
+        측정 주기가 10초라 한 건 유실이 그대로 공백으로 남습니다.
+        """
         if self._client is None:
-            self.get_logger().warn(
-                f"MQTT 미연결 — 스테이션 요청을 보내지 못했습니다: {msg.data}"
+            return False
+        try:
+            self._client.publish(topic, payload, qos=1)
+            return True
+        except Exception as exc:
+            self.get_logger().error(
+                f"{label} 발행 실패: {exc}", throttle_duration_sec=30.0
             )
+            return False
+
+    def _publish_sensors(self):
+        """측정값 하나당 메시지 하나로 올려보냅니다.
+
+        서버는 여러 센서를 묶은 메시지를 받지 않습니다. 한 번 보낸 값은
+        지워서, 센서가 죽었을 때 같은 값을 계속 올리지 않게 합니다.
+        """
+        if self._client is None:
             return
 
-        topic = f"potner/station/{msg.data.lower()}/request"
-        try:
-            self._client.publish(topic, msg.data)
-            self.get_logger().info(f"스테이션 요청 전송: {topic}")
-        except Exception as exc:
-            self.get_logger().error(f"스테이션 요청 발행 실패: {exc}")
+        for sensor_type, (value, measured_at) in list(self._latest.items()):
+            try:
+                payload = sensor_message(
+                    self._device_id, sensor_type, value, measured_at
+                )
+            except ValueError as exc:
+                # 허용 범위를 벗어난 값입니다. 서버는 이걸 조용히 버리므로
+                # 여기서 남겨야 센서 고장을 알 수 있습니다.
+                self.get_logger().error(f"센서값 거부: {exc}")
+                del self._latest[sensor_type]
+                continue
 
-    def _upload(self):
-        if self._client is None or not self._latest:
+            if self._publish(self._sensor_topic, payload, "센서"):
+                del self._latest[sensor_type]
+            # 실패면 값을 남겨둬서 다음 주기에 다시 시도합니다.
+
+    def _publish_state(self):
+        if self._state is None:
+            return
+        try:
+            payload = state_message(
+                self._device_id, self._state, self._state_changed_at
+            )
+        except ValueError as exc:
+            # mission_manager 가 서버 enum 에 없는 상태를 만든 경우입니다.
+            # 양쪽 enum 이 어긋났다는 신호라 조용히 넘기면 안 됩니다.
+            self.get_logger().error(f"상태 메시지 생성 실패: {exc}")
+            return
+        self._publish(self._state_topic, payload, "상태")
+
+    def _publish_battery(self):
+        """배터리 잔량을 전용 토픽으로 보냅니다 (DEVICE-MQTT.md 8절).
+
+        센서값보다 주기가 깁니다. 잔량은 분 단위로 변하고, 서버는 마지막
+        값만 덮어쓰므로 자주 보낼 이유가 없습니다.
+        """
+        if self._battery is None:
             return
 
-        topic = f"potner/{self._device_id}/telemetry"
+        percent, measured_at = self._battery
         try:
-            self._client.publish(topic, json.dumps(self._latest))
-        except Exception as exc:
-            self.get_logger().error(f"MQTT 발행 실패: {exc}")
+            payload = battery_message(self._device_id, percent, measured_at)
+        except ValueError as exc:
+            # 0~100 을 벗어났습니다. INA226 배선이나 전압 환산을 봐야 합니다.
+            self.get_logger().error(f"배터리값 거부: {exc}")
+            self._battery = None
+            return
+
+        self._publish(self._battery_topic, payload, "배터리")
+
+    def _publish_heartbeat(self):
+        """90초간 없으면 서버가 이 기기를 OFFLINE 으로 표시합니다."""
+        self._publish(
+            self._heartbeat_topic,
+            heartbeat_message(self._device_id, now_utc()),
+            "하트비트",
+        )
+
+        # 상태도 함께 다시 보냅니다. 변화 시점의 메시지가 유실되면 앱이
+        # 낡은 상태를 계속 보여주는데, 이러면 30초 안에 복구됩니다.
+        self._publish_state()
 
 
 def main(args=None):
@@ -183,7 +300,8 @@ def main(args=None):
         pass
     finally:
         node.destroy_node()
-        rclpy.shutdown()
+        if rclpy.ok():
+            rclpy.shutdown()
 
 
 if __name__ == "__main__":

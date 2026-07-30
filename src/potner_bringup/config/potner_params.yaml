@@ -118,10 +118,16 @@ marker_detector:
     # 거리가 그 비율만큼 통째로 어긋납니다.
     marker_size: 0.044
 
-    # TODO: focal_calibrator 로 보정 후 교체할 것.
-    #   ros2 run potner_perception focal_calibrator \
-    #       --ros-args -p true_distance:=0.5
-    focal_length_px: 600.0
+    # focal_calibrator 로 실측 보정한 값 (2026-07-28).
+    #
+    #   50cm  오차 -0.2%,  흔들림 1.0mm,  권장 877.8
+    #   15cm  오차 +0.2%,  흔들림 0.2mm,  권장 874.4
+    #
+    # 두 지점의 권장값이 876.4 를 감싸므로 그대로 둡니다. 부호가 갈리는 것은
+    # 렌즈 왜곡에 따른 계통 오차가 없다는 뜻입니다.
+    # 수평 화각 40.1도로 BRIO 100 사양(16:9 대각 58도를 4:3 으로 잘라낸 값)과
+    # 맞습니다. 카메라나 해상도를 바꾸면 다시 재세요.
+    focal_length_px: 876.4
 
     image_width: 640
     image_height: 480
@@ -135,7 +141,19 @@ person_detector:
 
 mqtt_bridge:
   ros__parameters:
-    broker_host: localhost   # TODO: EC2 브로커 주소로 교체
-    broker_port: 1883
-    device_id: potner-01
-    publish_period: 10.0
+    broker_host: i15e104.p.ssafy.io
+    broker_port: 1884        # 1883 이 아닙니다. EC2 보안그룹이 1884 만 엽니다
+
+    # 서버가 기기를 구분하는 값. 세 곳에 같이 쓰입니다.
+    #   1. 토픽 경로       potner/device/jetson-01/sensor/telemetry
+    #   2. 페이로드        "deviceId": "jetson-01"
+    #   3. 브로커 계정명   ACL 의 %u 가 이 값으로 치환됩니다
+    # 그래서 계정명과 다르게 두면 발행이 전부 조용히 거부됩니다.
+    device_id: jetson-01
+
+    # 비밀번호는 저장소에 두지 않습니다. 이름만 적고 값은 셸 환경에서 읽습니다.
+    password_env: POTNER_MQTT_PASSWORD
+
+    publish_period: 10.0     # 센서값 전송 주기 (s)
+    heartbeat_period: 30.0   # 살아있음 신호 주기 (s). 90초 넘기면 OFFLINE
+    battery_period: 60.0     # 배터리 잔량 주기 (s). 분 단위로 변해 길게 잡음
