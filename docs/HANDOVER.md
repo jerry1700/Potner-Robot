@@ -38,13 +38,15 @@
 
 ## 2. ★ 넘겨받은 날 바로 알아야 할 것
 
-**CI 가 실제로는 돌지 않습니다.** `Jenkinsfile` 이
-`pip install -r requirements_ci.txt` 를 하는데 **그 파일이 저장소에 없습니다**
-(이력에도 없음). Setup 단계에서 죽으므로 "테스트는 CI 가 잡는다"는 주석들은
-현재 로컬 `pytest tests/` 에만 해당합니다. `requirements.txt` 는 젯슨 전용
-패키지(`Jetson.GPIO`, `cuda-toolkit`)가 섞여 있어 CI 에 못 씁니다 — CI 용
-최소 목록(numpy, opencv-python-headless, pyyaml, paho-mqtt, pytest)을 분리해
-만드는 것이 첫 작업으로 적당합니다.
+**CI 의존성이 방금 바뀌었습니다 — 다음 젠킨스 실행을 확인하세요.** 예전에는
+`Jenkinsfile` 이 젯슨 전용 `requirements.txt` 를 grep 으로 걸러 CI 목록을
+즉석 생성하고 CPU torch 까지 설치했습니다. 테스트가 쓰지 않는 패키지
+수십 개(기가바이트급)를 매번 설치하는 방식이라, 테스트가 실제로 import 하는
+세 개(numpy, opencv-python-headless, PyYAML)만 담은 `requirements_ci.txt` 를
+저장소에 커밋하고 즉석 생성을 걷어냈습니다. **이 변경 뒤 젠킨스가 초록인지
+아직 확인되지 않았습니다** — 첫 푸시에서 Dependency Install 단계가 통과하는지
+봐 주세요. 참고로 `requirements.txt` 는 젯슨 전용이니 CI 에도, 이 CI 목록을
+젯슨에도 쓰면 안 됩니다.
 
 **젯슨이 feature 브랜치에 체크아웃되어 있을 수 있습니다.** 마지막 작업이
 `Robot-feature/display-expression/300` 이었습니다. 시작 전에:

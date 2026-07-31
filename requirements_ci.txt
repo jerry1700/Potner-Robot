@@ -1,0 +1,14 @@
+# CI(젠킨스) 전용 의존성 — tests/ 의 순수 로직 테스트가 import 하는 것만.
+#
+# requirements.txt 를 CI 에 쓰면 안 됩니다. 그쪽은 젯슨 전용
+# (Jetson.GPIO, cuda-toolkit, nvidia-*)이 섞여 있어 일반 리눅스에
+# 설치되지 않습니다. 반대로 이 파일을 젯슨에 쓰지도 마세요 — 실행에
+# 필요한 것이 빠져 있습니다.
+#
+# 여기에 패키지를 추가하는 기준: tests/ 아래에서 import 되는가.
+# 노드 파일(rclpy)은 CI 에서 테스트하지 않으므로 여기 오지 않습니다.
+# pytest 와 flake8 은 Jenkinsfile 이 직접 설치합니다.
+
+numpy                    # marker_pose, calibration 의 행렬 계산
+opencv-python-headless   # ArUco. headless 가 아니면 CI 서버에 libGL 이 없어 죽습니다
+PyYAML                   # test_config_consistency 가 potner_params.yaml 을 읽음
