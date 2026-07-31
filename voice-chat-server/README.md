@@ -83,11 +83,14 @@ python -m uvicorn app:app --app-dir voice-chat-server --host 0.0.0.0 --port 8443
 세션은 `session_id`별로 대화 맥락이 유지되고, 종료 시 `src/potner_llm/data/`의
 conversation 백엔드에 저장돼 다음 접속에서 이어진다.
 
-## LLM 백엔드 선택 — 웹 챗(초록이/Claude) 두뇌 빌려 쓰기
+## LLM 백엔드 선택
 
 `LLM_BACKEND` 환경변수로 두뇌를 고른다:
 
-- **`webchat` (기본)** — plant-robot-chat의 `/api/chat`을 HTTP로 호출.
+- **`potner` (기본)** — potner_llm DialogueService (오린카, GMS GPT).
+  대화 컨텍스트 조립(context_builder) + 센서 조회 툴 + 사실성 검증(factcheck,
+  센서와 상충하는 답은 재생성 후 상태 기반 폴백)이 적용된다.
+- **`webchat`** — plant-robot-chat의 `/api/chat`을 HTTP로 호출.
   초록이 페르소나 + 안전필터 + 툴 6개 + 장기기억 요약이 그대로 적용된다.
   **웹 챗 dev 서버가 함께 떠 있어야 한다:**
   ```bash
@@ -97,9 +100,8 @@ conversation 백엔드에 저장돼 다음 접속에서 이어진다.
   웹 챗이 3000이 아닌 포트에 떴으면 `WEBCHAT_URL=http://127.0.0.1:<포트>`로 지정.
   히스토리는 음성 서버(`webchat_llm.py`)가 세션별로 관리하며, 20턴 초과분은
   `/api/summarize`로 압축해 장기기억으로 넘긴다.
-- **`potner`** — 기존 potner_llm DialogueService (오린카, GMS GPT).
-
-웹 챗 서버가 꺼져 있으면 대화가 죽지 않고 안내 문구로 폴백한다.
+웹 챗 백엔드를 선택했는데 웹 챗 서버가 꺼져 있으면 대화가 죽지 않고 안내
+문구로 폴백한다.
 
 ## 대화 모니터 (노트북에서 보기 + 타이핑 참여)
 
@@ -112,9 +114,11 @@ conversation 백엔드에 저장돼 다음 접속에서 이어진다.
 
 ## 실제 센서 연결
 
-지금은 `app.py`의 `_demo_status()`(고정 상태: 토양 건조)를 쓴다. 로봇에 올릴 때
-MQTT/ROS에서 최신 `PlantStatus`를 돌려주는 함수로 교체하면 LLM tool use
-(`get_plant_status`)가 실제 센서값으로 대답한다.
+센서값은 `src/potner_llm/data/sensors.json`에서 읽는다
+(`sensor_provider.FileSensorSource`). 이 파일의 숫자를 바꾸면 다음 질문부터
+바로 반영된다. 로봇에 올릴 때는 MQTT/ROS 노드가 이 파일을 갱신하거나
+`CallbackSensorSource`로 교체하면 LLM tool use(`get_plant_status`)가 실제
+센서값으로 대답한다. 파일이 없거나 깨져도 서버는 죽지 않는다(미측정 라벨 폴백).
 
 ## STT 백엔드 (로컬 faster-whisper / GMS)
 
