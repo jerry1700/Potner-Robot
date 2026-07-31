@@ -1,0 +1,66 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+venv/
+env/
+.venv/
+.env/
+
+# Secrets
+.env
+
+# IDE / Editor folders
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Logs
+*.log
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# 발표 자료. 13MB 넘는 바이너리라 저장소 이력을 영구히 무겁게 만듭니다.
+# git 은 바이너리를 델타 압축하지 못해서, 한 번 커밋하면 수정할 때마다
+# 전체 사본이 쌓입니다. 공유는 팀 드라이브나 노션을 쓰세요.
+*.pdf
+
+# ROS 2 / colcon 빌드 산출물
+build/
+install/
+log/
+
+# 외부 드라이버 소스 (각자 clone). README 설치 안내 참고
+src/ydlidar_ros2_driver/
+
+# PlatformIO (ESP32 펌웨어)
+.pio/
+.pioenvs/
+.piolibdeps/
+
+# TensorRT 변환 결과물 (보드마다 달라서 공유하면 안 됩니다)
+*.engine
+
+# SLAM으로 만든 지도는 추적합니다 (maps/) — 팀이 공유해야 하는 산출물입니다.
+
+# Project specific
+# YOLO model weights (If the .pt file is large, it should be ignored.
+# yolo11n.pt is ~5.6MB, which is small enough for GitHub, but you can uncomment below to ignore it)
+# *.pt
+
+# Generated images / data
+# If you don't want to track generated markers, uncomment the line below
+# marker_id_*.png
+
+# potner_llm 로컬 CLI 실행 시 쌓이는 대화 이력/이벤트 로그 (사람마다 다름, 공유 안 함)
+src/potner_llm/data/
