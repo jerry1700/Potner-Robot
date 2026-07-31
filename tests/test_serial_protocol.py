@@ -21,7 +21,7 @@ def test_정지_명령():
 
 def test_정상_프레임을_해석한다():
     payload = "O,1440,-720,350,1200,98765"
-    line = "{}*{:02X}".format(payload, proto.checksum(payload))
+    line = f"{payload}*{proto.checksum(payload):02X}"
 
     feedback = proto.decode_feedback(line)
     assert feedback.left_ticks == 1440
@@ -35,7 +35,7 @@ def test_체크섬이_틀리면_거부한다():
     """노이즈로 한 글자가 바뀐 상황. 이걸 통과시키면 오도메트리가 튑니다."""
     payload = "O,1440,-720,350,1200,98765"
     good = proto.checksum(payload)
-    line = "{}*{:02X}".format(payload, good ^ 0xFF)
+    line = f"{payload}*{good ^ 0xFF:02X}"
 
     with pytest.raises(proto.ProtocolError):
         proto.decode_feedback(line)
@@ -48,7 +48,7 @@ def test_체크섬이_없으면_거부한다():
 
 def test_필드가_모자라면_거부한다():
     payload = "O,1440,-720"
-    line = "{}*{:02X}".format(payload, proto.checksum(payload))
+    line = f"{payload}*{proto.checksum(payload):02X}"
     with pytest.raises(proto.ProtocolError):
         proto.decode_feedback(line)
 

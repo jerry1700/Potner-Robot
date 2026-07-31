@@ -101,8 +101,8 @@ def test_정면_마커의_기울기가_0_근처로_나온다():
     _distance, yaw_deg = estimate_pose(corners[0][0], intrinsics, marker_size=0.044)
 
     assert abs(yaw_deg) < 15.0, (
-        "정면 마커인데 기울기가 %.1f도로 나왔습니다. "
-        "180도 기준 정규화가 빠진 것입니다." % yaw_deg
+        f"정면 마커인데 기울기가 {yaw_deg:.1f}도로 나왔습니다. "
+        f"180도 기준 정규화가 빠진 것입니다."
     )
 
 
