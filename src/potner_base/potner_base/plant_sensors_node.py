@@ -25,6 +25,7 @@ from std_msgs.msg import Float32
 
 from potner_base.plant_conversions import (
     battery_percent,
+    battery_wiring_suspect,
     lux_from_raw,
     moisture_percent,
     to_signed16,
@@ -232,6 +233,18 @@ class PlantSensors(Node):
 
         if voltage is None:
             return
+
+        if battery_wiring_suspect(voltage, self._cells):
+            # battery_percent() 는 곡선 끝에서 값을 잘라 항상 0~100 을
+            # 돌려주므로, 이 경고가 없으면 배선이 빠진 것도 그냥 "방전"으로
+            # 보입니다. 값은 그대로 발행합니다 — mission_manager 에게는
+            # 여전히 유효한 0% 근처 값입니다.
+            self.get_logger().warn(
+                f"배터리 전압이 비정상적으로 낮습니다 ({voltage:.2f}V, "
+                f"{self._cells}S 팩). 방전이 아니라 배선(VBS)이 빠졌거나 "
+                "접촉 불량일 가능성이 큽니다.",
+                throttle_duration_sec=30.0,
+            )
 
         percent = battery_percent(voltage, self._cells)
         if percent is not None:
