@@ -137,6 +137,12 @@ curl -s -H "Authorization: Bearer $TOKEN" \
 - **`command/speech`** — TTS 대사를 받을 토픽이 명세에 없습니다. ACL 이
   `command/#` 만 읽기 허용하므로 그 아래로 요청해 둔 상태. 이게 없으면
   `speaker_node` 는 mission_manager 의 인사말만 말합니다.
+- **`command/greet`** — 귀가 반김(마중). 로봇 쪽은 구현·테스트 완료
+  (`mission/greet_command` 로 ROS 시험 가능). 앱 지오펜스와 서버 발행이
+  미구현입니다. 명세 12절 7번의 답이기도 하므로 앱·서버 팀과 함께
+  정해야 합니다. 설계 요지: 귀가 알림이 인사를 "무장"시키고(기본 10분),
+  그 안에 YOLO 가 사람을 보면 인사 — 아무에게나 인사하지 않기 위한
+  구조입니다 (`potner_mission/greeting.py`).
 
 브로커의 특성 하나는 꼭 기억하세요: **ACL 위반 발행은 조용히 버려집니다.**
 에러도, 서버 로그도 없습니다. "연결됐는데 값이 안 들어온다" 싶으면
