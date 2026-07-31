@@ -89,6 +89,34 @@ def battery_percent(voltage: float, cell_count: int):
     return None
 
 
+# BMS 컷오프(약 3.0V/셀)보다 한참 아래인 전압입니다. 팩이 정상이라면
+# 방전이 아무리 심해도 BMS 가 먼저 끊어서 이 아래로는 안 내려갑니다.
+BATTERY_WIRING_FLOOR_PER_CELL = 2.0
+
+
+def battery_wiring_suspect(voltage: float, cell_count: int) -> bool:
+    """전압이 배선 문제를 의심할 만큼 낮은지 봅니다.
+
+    battery_percent() 는 리튬이온 곡선 양 끝에서 값을 잘라 항상 0~100 을
+    돌려주므로, VBS 배선이 빠져 0V 를 읽어도 그냥 0% 로 보입니다. 그러면
+    앱에는 "방전"으로 보이고 배선 문제인 줄 모릅니다.
+
+    구분하려면 잔량이 아니라 전압 자체를 봐야 합니다. 팩이 살아 있으면
+    BMS 가 과방전을 막아서 셀당 약 3.0V 아래로는 내려가지 않으므로, 그보다
+    훨씬 낮은 전압은 배선 문제로 봅니다.
+
+    Args:
+        voltage: 팩 전체 전압 (V)
+        cell_count: 직렬 셀 수
+
+    Returns:
+        cell_count 가 0 이하면 False (판단 불가)
+    """
+    if cell_count <= 0:
+        return False
+    return voltage < BATTERY_WIRING_FLOOR_PER_CELL * cell_count
+
+
 def to_signed16(raw: int) -> int:
     """ADS1115 등이 돌려주는 2바이트를 부호 있는 정수로 봅니다."""
     return raw - 0x10000 if raw & 0x8000 else raw
