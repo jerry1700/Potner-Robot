@@ -97,8 +97,10 @@ pattern read  potner/device/%u/command/#
 > 통과하고, 앱에는 "배터리 없음" 으로 보입니다.
 >
 > 이걸 구분하려면 잔량이 아니라 **전압**을 봐야 합니다. 4S 팩이 살아 있으면
-> 최소 12V 는 나오므로, 그보다 훨씬 낮은 전압은 배선 문제입니다.
-> `plant_sensors` 에 전압 하한 경고를 넣는 것이 다음 할 일입니다.
+> BMS 컷오프 때문에 최소 12V 는 나오므로, 그보다 훨씬 낮은 전압은 배선
+> 문제입니다. `plant_conversions.battery_wiring_suspect()` 가 이 판단을
+> 하고, `plant_sensors_node` 가 감지되면 경고 로그를 남깁니다(값 발행은
+> 그대로 합니다 — mission_manager 에게는 여전히 유효한 값이라서).
 
 ## 시각
 

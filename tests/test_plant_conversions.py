@@ -9,6 +9,7 @@ import pytest
 
 from potner_base.plant_conversions import (
     battery_percent,
+    battery_wiring_suspect,
     lux_from_raw,
     moisture_percent,
     to_signed16,
@@ -83,6 +84,29 @@ def test_잔량은_전압에_대해_단조증가한다():
 
 def test_셀_수가_0이면_None():
     assert battery_percent(14.8, cell_count=0) is None
+
+
+def test_정상_전압은_배선_의심_대상이_아니다():
+    """4S 팩이 완전히 방전돼도 BMS 컷오프(약 12V) 부근이라 의심하지 않습니다."""
+    assert battery_wiring_suspect(12.0, cell_count=4) is False
+    assert battery_wiring_suspect(16.8, cell_count=4) is False
+
+
+def test_VBS_배선이_빠지면_배선_의심으로_잡는다():
+    """배선이 빠지면 0V 에 가까운 값을 읽습니다. battery_percent() 는 이걸
+    그냥 0% 로 잘라버려 방전과 구분이 안 되므로, 전압 자체로 걸러냅니다."""
+    assert battery_wiring_suspect(0.0, cell_count=4) is True
+    assert battery_wiring_suspect(1.5, cell_count=4) is True
+
+
+def test_셀_수마다_기준이_다르다():
+    """3S 모터팩과 4S 젯슨팩은 정상 전압 범위가 다릅니다."""
+    assert battery_wiring_suspect(7.0, cell_count=3) is False  # 3S 정상 범위
+    assert battery_wiring_suspect(7.0, cell_count=4) is True   # 4S 라면 너무 낮음
+
+
+def test_셀_수가_0이면_판단하지_않는다():
+    assert battery_wiring_suspect(0.0, cell_count=0) is False
 
 
 def test_16비트_부호_변환():
