@@ -14,7 +14,7 @@ setup(
     install_requires=["setuptools"],
     zip_safe=True,
     maintainer="E104",
-    maintainer_email="dongkyu.han20@gmail.com",
+    maintainer_email="notbad1700@gmail.com",
     description="식물 로봇 LLM 클라이언트·프롬프트·툴 허브 (SSAFY GMS / OpenAI 호환)",
     license="MIT",
     entry_points={

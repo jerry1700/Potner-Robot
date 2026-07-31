@@ -15,7 +15,7 @@ setup(
     install_requires=["setuptools"],
     zip_safe=True,
     maintainer="E104",
-    maintainer_email="dongkyu.han20@gmail.com",
+    maintainer_email="notbad1700@gmail.com",
     description="센서 상태에 따라 임무를 판단하는 상태 머신과 최우선 안전 정지 노드",
     license="MIT",
     entry_points={
