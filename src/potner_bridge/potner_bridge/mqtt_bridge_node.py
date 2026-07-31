@@ -98,6 +98,12 @@ class MqttBridge(Node):
         # 않습니다 — 식물 상태를 아는 쪽이 서버라서 그쪽이 정합니다.
         self._expression_pub = self.create_publisher(String, "display/expression", 10)
         self._reason_pub = self.create_publisher(String, "display/reason", 10)
+        # 귀가 알림(앱 지오펜스 -> 서버). mission_manager 가 받아 인사를
+        # 무장하고 맞이 위치로 이동합니다.
+        # ★ 서버 쪽 발행은 아직 미구현입니다 (DEVICE-MQTT.md 12절 7번 답변
+        #   대기). 토픽이 열리기 전에는 ROS 로 직접 넣어 시험합니다:
+        #   ros2 topic pub -t 3 /mission/greet_command std_msgs/msg/String "{data: ''}"
+        self._greet_pub = self.create_publisher(String, "mission/greet_command", 10)
 
         self._command_topic = command_topic(self._device_id)
         self._client = self._connect()
@@ -190,6 +196,14 @@ class MqttBridge(Node):
 
     def _on_message(self, client, userdata, message):
         """서버가 보낸 명령. ACL 이 command/# 만 읽기 허용합니다."""
+        if message.topic.endswith("/command/greet"):
+            # 귀가 알림. 페이로드 형식이 서버 팀과 아직 미확정이라 내용은
+            # 해석하지 않고 그대로 넘깁니다. 무장에는 도착 사실만 필요합니다.
+            payload = message.payload.decode("utf-8", errors="ignore")
+            self._greet_pub.publish(String(data=payload))
+            self.get_logger().info("귀가 알림 수신 -> mission/greet_command")
+            return
+
         if not message.topic.endswith("/command/expression"):
             # 서버가 명령을 늘렸습니다. 무시하되 남겨서 알 수 있게 합니다.
             self.get_logger().info(
