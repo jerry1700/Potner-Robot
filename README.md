@@ -12,7 +12,9 @@
 ```
 ① Jetson Orin Nano — 판단
    ├ USB ─ LiDAR (YDLIDAR X4 Pro), 카메라 (BRIO 100), 스피커
-   ├ HDMI ─ 7인치 LCD (표정)
+   ├ DP ─ 액티브 어댑터 ─ 7인치 LCD 1024x600 (표정)
+   │      ⚠️ 젯슨에 HDMI 단자가 없습니다. 패시브 어댑터는 동작하지
+   │         않습니다 → docs/JETSON_DISPLAY.md
    ├ I2C ─ BH1750 조도, ADS1115 ─ 정전식 토양 수분
    └ USB ─────┐
               │
@@ -49,11 +51,22 @@ src/
 ├── potner_mission/       임무 상태 머신, 최우선 안전 정지
 ├── potner_bridge/        MQTT ↔ ROS 2 브리지 (서버·스테이션 연동)
 ├── potner_msgs/          커스텀 메시지·액션 정의
+├── potner_llm/           LLM 응답 파이프라인 (담당: LLM 파트)
 └── potner_firmware/      ESP32 펌웨어 (PlatformIO, ROS 패키지 아님)
 
+voice-chat-server/        음성 대화 웹서버 (담당: LLM 파트)
 tests/                    CI용 단위 테스트 (ROS 없이 순수 로직만)
+docs/                     명세·환경 문서 (아래 표 참고)
 legacy/                   ROS 2 전환 이전 코드 (참고용, 실행되지 않음)
 ```
+
+| 문서 | 내용 |
+|---|---|
+| [`docs/CODE_STYLE.md`](docs/CODE_STYLE.md) | 팀 코드 스타일 규칙 |
+| [`docs/DEVICE-MQTT.md`](docs/DEVICE-MQTT.md) | **서버 연동 명세 (서버 팀 관리, 최우선 기준)** |
+| [`docs/MQTT_CONTRACT.md`](docs/MQTT_CONTRACT.md) | MQTT 로봇 쪽 구현 노트 |
+| [`docs/JETSON_DISPLAY.md`](docs/JETSON_DISPLAY.md) | 젯슨 화면 세팅 (표정 표시 전 필독) |
+| [`docs/HANDOVER.md`](docs/HANDOVER.md) | 인수인계 — 진행 상황과 다음 작업 |
 
 **노드 파일과 계산 로직을 파일 단위로 분리**한 것이 설계의 핵심입니다.
 `kinematics.py` 같은 순수 모듈은 rclpy를 import 하지 않아서 젯슨 없이도
@@ -78,7 +91,11 @@ sudo apt install -y ros-dev-tools ros-humble-navigation2 ros-humble-nav2-bringup
 ```bash
 source /opt/ros/humble/setup.bash
 export ROS_DOMAIN_ID=104
+export POTNER_MQTT_PASSWORD='<브로커 비밀번호>'   # 서버 팀에게 받으세요. 저장소에 없습니다
 ```
+
+비밀번호가 없으면 `mqtt_bridge` 가 접속을 포기하고 에러만 남깁니다. 계정
+구조와 확인 방법은 [`docs/MQTT_CONTRACT.md`](docs/MQTT_CONTRACT.md) 를 보세요.
 
 ### 2. 워크스페이스 빌드
 
@@ -163,7 +180,9 @@ sudo udevadm control --reload-rules && sudo udevadm trigger
 # ① 형상 확인 — 로봇 없이 노트북에서도 됩니다
 ros2 launch potner_description view_model.launch.py
 
-# ② 로봇 본체 (센서 + 모터 + 안전)
+# ② 로봇 본체 (센서 + 모터 + 안전 + 표정 화면)
+#    SSH 에서 띄우면 표정 창이 안 뜹니다. export DISPLAY=:0 을 먼저 하세요
+#    → docs/JETSON_DISPLAY.md
 ros2 launch potner_bringup robot.launch.py
 
 # ③ 지도 만들기 — 키보드로 천천히 몰면서 집을 한 바퀴
