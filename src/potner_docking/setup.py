@@ -16,7 +16,7 @@ setup(
     install_requires=["setuptools"],
     zip_safe=True,
     maintainer="E104",
-    maintainer_email="dongkyu.han20@gmail.com",
+    maintainer_email="notbad1700@gmail.com",
     description="ArUco 마커를 보며 스테이션에 정밀 도킹하는 액션 서버",
     license="MIT",
     entry_points={

@@ -13,7 +13,7 @@ setup(
     install_requires=["setuptools"],
     zip_safe=True,
     maintainer="E104",
-    maintainer_email="dongkyu.han20@gmail.com",
+    maintainer_email="notbad1700@gmail.com",
     description="Potner 하드웨어 계층 (ESP32 시리얼, 차동 구동 기구학, 오도메트리)",
     license="MIT",
     entry_points={

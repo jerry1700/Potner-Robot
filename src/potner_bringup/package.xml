@@ -4,7 +4,7 @@
   <name>potner_bringup</name>
   <version>0.1.0</version>
   <description>Potner 로봇 전체를 띄우는 launch 파일과 파라미터 모음</description>
-  <maintainer email="dongkyu.han20@gmail.com">E104</maintainer>
+  <maintainer email="notbad1700@gmail.com">E104</maintainer>
   <license>MIT</license>
 
   <buildtool_depend>ament_cmake</buildtool_depend>

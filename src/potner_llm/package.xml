@@ -4,7 +4,7 @@
   <name>potner_llm</name>
   <version>0.1.0</version>
   <description>식물 로봇 LLM 클라이언트·프롬프트·툴 허브 (SSAFY GMS / OpenAI 호환)</description>
-  <maintainer email="dongkyu.han20@gmail.com">E104</maintainer>
+  <maintainer email="notbad1700@gmail.com">E104</maintainer>
   <license>MIT</license>
 
   <exec_depend>rclpy</exec_depend>
