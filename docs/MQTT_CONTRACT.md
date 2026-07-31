@@ -10,8 +10,12 @@
 
 관련 코드
 - 메시지 생성: [`src/potner_bridge/potner_bridge/telemetry.py`](../src/potner_bridge/potner_bridge/telemetry.py)
+- 귀가 계약: [`src/potner_bridge/potner_bridge/arrival_contract.py`](../src/potner_bridge/potner_bridge/arrival_contract.py)
 - 노드: [`src/potner_bridge/potner_bridge/mqtt_bridge_node.py`](../src/potner_bridge/potner_bridge/mqtt_bridge_node.py)
-- 검증: [`tests/test_telemetry.py`](../tests/test_telemetry.py) — 서버 문서와 어긋나면 CI 가 잡습니다
+- 귀가 상태 머신: [`src/potner_mission/potner_mission/arrival_session.py`](../src/potner_mission/potner_mission/arrival_session.py)
+- 검증: [`tests/test_telemetry.py`](../tests/test_telemetry.py),
+  [`tests/test_arrival_contract.py`](../tests/test_arrival_contract.py),
+  [`tests/test_arrival_session.py`](../tests/test_arrival_session.py)
 
 ---
 
@@ -24,7 +28,11 @@
 | 발행 | `status/heartbeat` | 30초 | — |
 | 발행 | `status/state` | 변화 시 + 30초 | `mission/state` |
 | 발행 | `status/battery` | 60초 | `battery/percent` |
-| 구독 | `command/#` | — | (미구현) |
+| 구독 | `command/expression` | 서버 발행 시 | `display/expression` |
+| 구독 | `command/welcome_start` | 귀가 접근 시 | `mission/arrival_command` |
+| 구독 | `command/welcome_cancel` | 귀가 취소 시 | `mission/arrival_command` |
+| 발행 | `result/welcome_start` | GREETING 도착/실패 | `mission/arrival_result` |
+| 발행 | `result/welcome_cancel` | HOME 도착/실패 | `mission/arrival_result` |
 
 온도와 습도는 스테이션이 재서 서버로 직접 올립니다. 젯슨에서 DHT11 을 읽으려면
 마이크로초 타이밍이 필요한데 리눅스는 실시간 OS 가 아니라 자주 실패합니다.
@@ -114,16 +122,32 @@ pattern read  potner/device/%u/command/#
 timedatectl status        # System clock synchronized: yes 확인
 ```
 
-## 미구현
+## 귀가 마중 동작
 
-- **`command/expression`** — 7인치 LCD 표정 (`DEVICE-MQTT.md` 9절). 30초마다
-  같은 값이 반복되고, 모르는 값이 오면 `NEUTRAL` 로 떨어뜨려야 합니다
-- **`commandId` 되돌려주기** — 서버가 "명령 직전의 `IDLE`" 과 "도착 후의
-  `IDLE`" 을 구분하려면 필요합니다 (`DEVICE-MQTT.md` 12절). 없으면 서버가
-  대기 중인 로봇에게 급수 명령을 보내 물을 바닥에 쏟습니다
+서버가 `GREETING`과 `HOME`의 map 좌표를 명령에 넣어 보내며 로봇의 정적
+`greet_pose`는 사용하지 않습니다.
+
+```
+welcome_start
+  -> GREETING Nav2 이동
+  -> 도착하면 result/welcome_start OK
+  -> 사람 인식 시 인사, 없으면 waitSeconds 대기
+  -> HOME Nav2 복귀
+
+welcome_cancel
+  -> 진행 중 이동·대기 취소
+  -> HOME Nav2 복귀
+  -> 도착하면 result/welcome_cancel OK
+```
+
+QoS 1로 같은 명령이 다시 와도 `requestId` 결과 캐시로 이동을 중복 실행하지
+않습니다. 다른 `visitId`의 명령이나 다른 임무 중 새 시작은 `BUSY`, Nav2 실패는
+`ERROR`로 회신합니다. `autonomous_missions_enabled`의 운영 기본값은 `false`라
+서버 명령과 Jetson 자체 임계값 판단이 동시에 로봇을 움직이지 않습니다.
+
+## 아직 미구현
+
+- **`command/navigate`** — 일반 스테이션 이동과 결과 반향. 귀가 전용
+  `welcome_start/cancel`과 별도 계약입니다
 - **`command/speech`** — 서버 팀에 추가를 요청해야 합니다. 현재 명세에 대사
   전달 토픽이 없습니다
-- **`command/greet` (서버 쪽)** — 귀가 알림. 로봇 쪽 수신·무장·인사는 구현돼
-  있고, 앱 지오펜스 -> 서버 API -> 이 토픽 발행이 미구현입니다. 명세 12절
-  7번("GREETING 은 서버가 시킵니까?")의 답이 "서버가 시킨다"로 정해지면
-  이 토픽이 그 경로입니다
