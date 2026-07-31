@@ -33,7 +33,7 @@ class BaseDriver(Node):
 
         self.declare_parameter("serial_port", "/dev/ttyUSB_ESP32")
         self.declare_parameter("baud_rate", 115200)
-        self.declare_parameter("wheel_diameter", 0.075)
+        self.declare_parameter("wheel_diameter", 0.060)
         self.declare_parameter("wheel_separation", 0.200)
         self.declare_parameter("counts_per_rev", 1440)
         self.declare_parameter("max_wheel_speed", 0.25)
