@@ -1,0 +1,47 @@
+# YDLIDAR X4 Pro 파라미터.
+#
+# 드라이버 저장소의 params/X4-Pro.yaml 을 가져와 port 만 바꿨습니다.
+# 우리 저장소에서 관리하는 이유는 드라이버를 다시 받아도 설정이
+# 날아가지 않게 하기 위함입니다.
+#
+# ⚠️ ydlidar_launch.py 는 쓰지 마세요.
+#    그 launch 는 base_link -> laser_frame 을 2cm 로 발행하는데,
+#    우리 URDF 는 폴 높이를 반영해 48.8cm 로 발행합니다. 둘 다 켜면
+#    같은 변환이 두 개 생겨 SLAM 이 스캔 위치를 잡지 못합니다.
+#    로봇 형상은 URDF 가 소유하고, 드라이버는 스캔만 내보냅니다.
+
+ydlidar_ros2_driver_node:
+  ros__parameters:
+    # udev 규칙으로 만든 고정 이름. ttyUSB 번호는 부팅마다 바뀝니다.
+    port: /dev/ydlidar
+    baudrate: 128000            # X4 계열 확정값. 230400 이면 응답 없음
+
+    # URDF 의 링크 이름과 반드시 일치해야 스캔이 TF 트리에 붙습니다.
+    frame_id: laser_frame
+
+    lidar_type: 1               # TYPE_TRIANGLE
+    device_type: 0              # YDLIDAR_TYPE_SERIAL
+    isSingleChannel: true
+    sample_rate: 5
+    intensity: false
+    intensity_bit: 0
+
+    ignore_array: ""
+    abnormal_check_count: 4
+    fixed_resolution: true
+    reversion: false
+    inverted: false
+    auto_reconnect: true
+    support_motor_dtr: false
+
+    angle_max: 180.0
+    angle_min: -180.0
+
+    # 실측 사양 0.1 ~ 12m. 10cm 안쪽은 보이지 않으므로
+    # 근접 장애물은 범퍼 ToF 센서가 담당합니다.
+    range_max: 12.0
+    range_min: 0.1
+
+    frequency: 10.0             # 실측 약 11.4Hz
+    invalid_range_is_inf: false
+    debug: false

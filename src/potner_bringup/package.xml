@@ -1,0 +1,30 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>potner_bringup</name>
+  <version>0.1.0</version>
+  <description>Potner 로봇 전체를 띄우는 launch 파일과 파라미터 모음</description>
+  <maintainer email="notbad1700@gmail.com">E104</maintainer>
+  <license>MIT</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+
+  <exec_depend>potner_base</exec_depend>
+  <exec_depend>potner_description</exec_depend>
+  <exec_depend>potner_docking</exec_depend>
+  <exec_depend>potner_mission</exec_depend>
+  <exec_depend>potner_perception</exec_depend>
+  <exec_depend>potner_bridge</exec_depend>
+
+  <exec_depend>robot_state_publisher</exec_depend>
+  <exec_depend>twist_mux</exec_depend>
+  <exec_depend>slam_toolbox</exec_depend>
+  <exec_depend>navigation2</exec_depend>
+  <exec_depend>nav2_bringup</exec_depend>
+  <exec_depend>v4l2_camera</exec_depend>
+  <exec_depend>xacro</exec_depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>

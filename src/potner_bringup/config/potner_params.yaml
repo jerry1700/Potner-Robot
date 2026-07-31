@@ -1,0 +1,195 @@
+# Potner 로봇 전체 파라미터.
+#
+# ★ TODO 표시된 값은 조립 후 자로 재서 바꿔야 합니다. 특히 바퀴 지름과
+#   축간거리가 틀리면 로봇이 지도에서 엉뚱한 곳으로 흘러갑니다.
+#   확정값(엔코더 CPR 등)은 부품 사양에서 나온 것이라 건드리지 마세요.
+
+base_driver:
+  ros__parameters:
+    serial_port: /dev/ttyUSB_ESP32   # udev 규칙으로 고정 (README 참고)
+    baud_rate: 115200
+
+    wheel_diameter: 0.060     # 확정 — 60mm 로봇용 구동 바퀴
+    wheel_separation: 0.200   # TODO 실측 (m) — 좌우 바퀴 중심 간 거리
+    counts_per_rev: 1440      # 확정 — FIT0403 출력축 CPR
+
+    # 안전 제한. 122RPM x 60mm 바퀴면 이론 최대는 약 0.38 m/s 지만,
+    # 화분을 이고 다니는 로봇이라 절반 이하로 묶습니다. 급가속하면
+    # 무게중심이 높아 흔들리고 식물이 쏟아집니다.
+    max_wheel_speed: 0.25
+
+    cmd_vel_timeout: 0.5      # 이 시간 동안 명령이 없으면 정지 (s)
+    publish_rate: 30.0        # odom 발행 주기 (Hz)
+
+plant_sensors:
+  ros__parameters:
+    i2c_bus: 7                # Orin Nano 40핀 헤더 3번/5번
+    publish_period: 2.0       # 느리게 변하는 값이라 이 정도면 충분 (s)
+
+    # TODO 실측 필요. 보정 전에는 moisture 를 아예 발행하지 않습니다.
+    # 가짜 값을 흘리면 엉뚱한 급수 임무가 떠서 로봇이 계속 물을 받으러 갑니다.
+    #   1. 센서를 공기 중에 두고 원시값 확인 -> moisture_raw_dry
+    #   2. 표시선 아래까지 물에 담그고 확인   -> moisture_raw_wet
+    moisture_raw_dry: 0
+    moisture_raw_wet: 0
+
+    battery_cells: 4          # 젯슨팩 4S (모터팩은 3S)
+
+    # INA226 이 없을 때 젯슨 내장 전력 모니터로 대체하는 경로.
+    # Orin Nano 는 배럴잭 입력 전압을 자체 INA3221 로 재고 있습니다.
+    # 경로는 젯팩 버전마다 달라서 실기에서 찾아 넣어야 합니다:
+    #   find /sys/bus/i2c/devices/*/hwmon/hwmon*/ -name 'in*_input'
+    battery_voltage_path: ""
+
+speaker:
+  ros__parameters:
+    enabled: true
+    max_text_length: 300      # LLM 이 긴 답을 보내도 이만큼만 말합니다
+
+    # 음성 합성 명령. "{text}" 자리에 문장이 인자 하나로 들어갑니다.
+    # espeak-ng 는 한국어 발음이 어색하지만 오프라인이고 어디서나 깔립니다.
+    # 데모 품질이 필요하면 piper 같은 신경망 TTS 로 교체하세요.
+    #   sudo apt install espeak-ng
+    tts_command: ["espeak-ng", "-v", "ko", "-s", "150", "{text}"]
+
+    # 미리 녹음해둔 문장이 있으면 합성보다 먼저 재생합니다. 귀가 인사처럼
+    # 즉답이 필요하고 자주 쓰는 문장은 녹음해두는 편이 품질도 낫습니다.
+    # 비워두면 항상 합성합니다.
+    wav_dir: ""
+    wav_player: ["aplay", "-q", "{text}"]
+
+safety:
+  ros__parameters:
+    scan_stop_distance: 0.25    # LiDAR 정지 거리 (m)
+    bumper_stop_distance: 0.12  # 범퍼 ToF 정지 거리 (m)
+    front_arc_deg: 60.0         # 정면으로 볼 각도 폭
+    clear_hysteresis: 0.08      # 해제 여유 (m) — 경계에서 깜빡임 방지
+    publish_rate: 20.0
+
+mission_manager:
+  ros__parameters:
+    # legacy/main.py 의 임계값을 그대로 옮겼습니다.
+    battery_percent: 20.0
+    moisture_percent: 30.0
+
+    # ★ 실측 전 임시값. legacy 코드에서 그대로 가져왔을 뿐 이 로봇이 놓일
+    # 자리에서 잰 값이 아닙니다. 200lux 는 평범한 실내 조명보다 어두워서,
+    # 이 값을 그대로 쓰면 낮에도 계속 "빛이 부족하다"고 판단해 일광욕
+    # 임무가 쉬지 않고 걸릴 수 있습니다. 식물이 실제로 놓일 자리에서
+    #   ros2 topic echo /plant/lux --once
+    # 로 낮/저녁/조명 끈 상태를 재고 그 사이 값으로 바꾸세요.
+    light_lux: 200.0
+    temperature_celsius: 30.0
+    evaluate_period: 2.0
+    greeting_cooldown: 300.0    # 같은 사람에게 5분 내 재인사 방지 (s)
+    service_duration: 10.0      # 스테이션 서비스 대기 시간 (s)
+    docking_timeout: 90.0
+
+    # 귀가 알림(command/greet) 후 인사가 무장되는 시간 (s).
+    # 이 시간 안에 사람이 보여야 인사합니다. 아무 때나 인사하면 집에 있던
+    # 가족이 지나가도 인사하기 때문에, 귀가 알림이 있어야만 인사합니다.
+    greet_arm_duration: 600.0
+
+    # 맞이 위치 — 현관이 보이는 지점 [x, y, yaw(rad)].
+    # 전부 0 이면 미설정으로 보고 이동 없이 제자리에서 인사를 기다립니다.
+    # TODO: SLAM 지도를 만든 뒤 실제 좌표로 채울 것 (station_poses 와 함께).
+    greet_pose: [0.0, 0.0, 0.0]
+
+    # 지도가 없을 때 도킹만 따로 시험하기 위한 우회 스위치.
+    # true 면 Nav2 이동을 건너뛰고 바로 도킹 액션을 보냅니다.
+    skip_navigation: false
+
+    # 스테이션별 지도 좌표 [x, y, yaw(rad)]
+    # TODO: SLAM 으로 지도를 만든 뒤 실제 좌표로 채울 것.
+    #   RViz 에서 스테이션 앞 지점에 커서를 올리면 좌표가 보입니다.
+    #   전부 0 이면 "미설정"으로 보고 임무를 시작하지 않습니다.
+    #   (0 을 그대로 보내면 로봇이 지도 원점으로 달려갑니다)
+    station_poses:
+      charging: [0.0, 0.0, 0.0]
+      water: [0.0, 0.0, 0.0]
+      sunlight: [0.0, 0.0, 0.0]
+      wind: [0.0, 0.0, 0.0]
+
+docking_server:
+  ros__parameters:
+    # TODO: 실기에서 재튜닝. 진동하면 kp를 낮추고, 반응이 굼뜨면 올리세요.
+    kp_lateral: 0.0025       # 화면 좌우 오차(px) -> rad/s
+    kp_yaw: 0.017            # 마커 기울기(deg) -> rad/s
+    approach_speed: 0.12     # 접근 속도 (m/s) — 식물이 흔들리지 않게 천천히
+    max_angular: 0.8         # 각속도 상한 (rad/s)
+    target_distance: 0.15    # 목표 정지 거리 (m)
+    marker_lost_timeout: 2.0 # 이 시간 넘게 마커를 못 보면 정지
+    search_timeout: 15.0     # 마커를 한 번도 못 보면 이때 포기
+    docking_timeout: 90.0    # 이 시간 넘으면 포기 (무한루프 방지)
+    confirm_timeout: 5.0     # 스테이션 접점을 기다리는 시간
+
+    # 스테이션 A3144 홀 센서 신호를 성공 조건으로 요구할지.
+    # 스테이션이 아직 없으므로 false. 완성되면 true 로 바꿔서
+    # 물리적 접촉까지 확인하게 하세요.
+    require_station_confirm: false
+
+marker_detector:
+  ros__parameters:
+    # 인쇄물 실측값 (검은 사각형 바깥 테두리 한 변 4.4cm).
+    # 마커를 다시 인쇄하면 반드시 다시 재서 고치세요. 이 값이 틀리면
+    # 거리가 그 비율만큼 통째로 어긋납니다.
+    marker_size: 0.044
+
+    # focal_calibrator 로 실측 보정한 값 (2026-07-28).
+    #
+    #   50cm  오차 -0.2%,  흔들림 1.0mm,  권장 877.8
+    #   15cm  오차 +0.2%,  흔들림 0.2mm,  권장 874.4
+    #
+    # 두 지점의 권장값이 876.4 를 감싸므로 그대로 둡니다. 부호가 갈리는 것은
+    # 렌즈 왜곡에 따른 계통 오차가 없다는 뜻입니다.
+    # 수평 화각 40.1도로 BRIO 100 사양(16:9 대각 58도를 4:3 으로 잘라낸 값)과
+    # 맞습니다. 카메라나 해상도를 바꾸면 다시 재세요.
+    focal_length_px: 876.4
+
+    image_width: 640
+    image_height: 480
+
+person_detector:
+  ros__parameters:
+    model_path: yolo11n.pt   # TODO: TensorRT 변환 후 yolo11n.engine 으로
+    confidence: 0.5
+    inference_period: 0.2    # 5Hz
+    device: cuda
+
+face_display:
+  ros__parameters:
+    # 0 이면 연결된 화면의 해상도를 커널에서 읽어 씁니다
+    # (/sys/class/drm/<커넥터>/modes). 7인치 LCD 는 1024x600 입니다.
+    # 시험용 모니터와 해상도가 달라도 설정을 안 고치게 하려고 자동으로 둡니다.
+    width: 0
+    height: 0
+    fullscreen: true
+
+    # 어떤 사유로 이 표정이 왔는지 화면 아래에 적습니다. 브링업 중에는 켜두는
+    # 편이 낫고, 시연 때는 끄세요.
+    show_reason: true
+
+    # 비워두면 화면에만 그립니다. 경로를 주면 그린 얼굴을 그 파일로도
+    # 남깁니다. 젯슨은 DisplayPort 만 내서 모니터가 아직 안 붙었을 때
+    # MQTT -> 표정 경로를 이걸로 확인할 수 있습니다.
+    #   예) /tmp/potner_face.png
+    save_path: ""
+
+mqtt_bridge:
+  ros__parameters:
+    broker_host: i15e104.p.ssafy.io
+    broker_port: 1884        # 1883 이 아닙니다. EC2 보안그룹이 1884 만 엽니다
+
+    # 서버가 기기를 구분하는 값. 세 곳에 같이 쓰입니다.
+    #   1. 토픽 경로       potner/device/jetson-01/sensor/telemetry
+    #   2. 페이로드        "deviceId": "jetson-01"
+    #   3. 브로커 계정명   ACL 의 %u 가 이 값으로 치환됩니다
+    # 그래서 계정명과 다르게 두면 발행이 전부 조용히 거부됩니다.
+    device_id: jetson-01
+
+    # 비밀번호는 저장소에 두지 않습니다. 이름만 적고 값은 셸 환경에서 읽습니다.
+    password_env: POTNER_MQTT_PASSWORD
+
+    publish_period: 10.0     # 센서값 전송 주기 (s)
+    heartbeat_period: 30.0   # 살아있음 신호 주기 (s). 90초 넘기면 OFFLINE
+    battery_period: 60.0     # 배터리 잔량 주기 (s). 분 단위로 변해 길게 잡음

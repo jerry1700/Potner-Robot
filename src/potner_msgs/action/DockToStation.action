@@ -1,0 +1,18 @@
+# 스테이션 정밀 도킹 액션.
+# Nav2가 스테이션 근처까지 데려다 준 뒤 이 액션이 최종 접근을 맡습니다.
+
+# --- 목표 ---
+int32 marker_id            # 1=충전, 2=급수, 3=일광, 4=송풍
+float32 timeout            # 초과 시 중단 (초). 0이면 기본값 사용
+---
+# --- 결과 ---
+bool success
+string message
+float32 final_distance     # 최종 정지 거리 (m)
+float32 final_yaw_error    # 최종 기울기 오차 (deg)
+---
+# --- 진행 상황 ---
+string state               # SEARCHING / APPROACHING / ALIGNING / CONFIRMING
+float32 distance           # 현재 마커까지 거리 (m)
+float32 lateral_error      # 화면 좌우 오차 (px)
+float32 yaw_error          # 기울기 오차 (deg)
