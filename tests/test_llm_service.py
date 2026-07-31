@@ -248,6 +248,44 @@ def test_answer_survives_provider_exceptions():
     assert result["success"] is True  # 기본 프로필/센서로 계속 진행
 
 
+# --- 사실성 검증 배선: 통과한 답변만 사용자에게 전달된다 --------------------------
+
+
+def test_answer_factcheck_rejects_reply_contradicting_sensors():
+    # 센서는 26.1°C인데 34도라고 주장 — 재생성해도 같은 답(스텁)이라 최종 폴백
+    result = _service(
+        reply="지금 34도라서 너무 더워.",
+        sensor_provider=lambda: SensorSnapshot(temp=26.1),
+    ).answer("더워?")
+    assert result["fallback"] is True
+    assert result["error_code"].startswith("fact_check:")
+    assert result["message"] == "지금은 대답하기 어려워요."
+    assert "34도" not in result["message"]
+
+
+def test_answer_factcheck_retries_then_delivers_corrected_reply():
+    class _RetryStub(_StubClient):
+        def __init__(self):
+            super().__init__()
+            self.calls = 0
+
+        def complete(self, user_prompt: str, *, system: str, temperature: float = 0.7):
+            self.calls += 1
+            if self.calls == 1:
+                return "흙 수분이 80%야."  # 센서(42%)와 상충 → 재생성 유도
+            return "흙 수분이 42%라서 딱 좋아."
+
+    stub = _RetryStub()
+    service = PlantChatService(
+        client=stub, sensor_provider=lambda: SensorSnapshot(soil=42.0)
+    )
+    result = service.answer("흙 어때?")
+    assert stub.calls == 2
+    assert result["success"] is True
+    assert "42%" in result["message"]
+    assert "fallback" not in result
+
+
 # --- 클라이언트: timeout이 LlmTimeoutError로 매핑되는지 ---------------------------
 
 

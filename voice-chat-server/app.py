@@ -39,7 +39,7 @@ from potner_llm.client import describe_llm  # noqa: E402
 from potner_llm.conversation_backend import create_conversation_backend  # noqa: E402
 from potner_llm.dialogue import DialogueService  # noqa: E402
 from potner_llm.events import EventStore  # noqa: E402
-from potner_llm.status import MetricLevel, PlantStatus  # noqa: E402
+from potner_llm.sensor_provider import FileSensorSource, SensorDataProvider  # noqa: E402
 
 from local_stt import LocalSttClient  # noqa: E402
 from speech import SpeechApiError, SpeechClient  # noqa: E402
@@ -83,22 +83,12 @@ def _load_env_file(path: Path) -> None:
             os.environ[key] = value
 
 
-def _demo_status() -> PlantStatus:
-    """실제 센서 노드 연결 전 테스트용 고정 상태 (cli.py와 동일).
-
-    로봇에 올릴 때는 MQTT/ROS에서 최신 상태를 읽는 provider로 교체한다.
-    """
-    ok = MetricLevel(name="ok", value=25.0, level="normal", label_ko="적정")
-    dry = MetricLevel(name="soil", value=18.0, level="low", label_ko="건조")
-    return PlantStatus(
-        timestamp="2026-07-29T10:00:00",
-        soil=dry,
-        temperature=ok,
-        humidity=ok,
-        light=ok,
-        summary_ko="토양이 건조해서 물이 필요해요",
-        needs_attention=True,
-    )
+# 센서 소스: src/potner_llm/data/sensors.json을 읽는다. 실기에서는 MQTT/ROS
+# 노드가 이 파일을 갱신하거나 CallbackSensorSource로 대체한다. 파일이
+# 없거나 깨져도 provider가 흡수(미측정 라벨)하므로 서버는 죽지 않는다.
+_sensor_provider = SensorDataProvider(
+    FileSensorSource(REPO_ROOT / "src" / "potner_llm" / "data" / "sensors.json")
+)
 
 
 class TurnBroadcaster:
@@ -161,9 +151,10 @@ class VoiceChatApp:
         self._sessions: dict[str, DialogueService] = {}
         self._lock = threading.Lock()
 
-        # LLM 두뇌 선택 — webchat: plant-robot-chat의 초록이(Claude) 빌려 쓰기(기본),
-        # potner: 기존 potner_llm DialogueService.
-        self.llm_backend = os.environ.get("LLM_BACKEND", "webchat").strip().lower()
+        # LLM 두뇌 선택 — potner: potner_llm DialogueService(기본 — 컨텍스트·
+        # 센서 조회·사실성 검증 고도화 반영), webchat: plant-robot-chat의
+        # 초록이(Claude) 빌려 쓰기.
+        self.llm_backend = os.environ.get("LLM_BACKEND", "potner").strip().lower()
         if self.llm_backend not in ("webchat", "potner"):
             raise RuntimeError(f"LLM_BACKEND는 webchat|potner 중 하나여야 합니다: {self.llm_backend}")
         self.webchat = WebChatLLM() if self.llm_backend == "webchat" else None
@@ -208,7 +199,7 @@ class VoiceChatApp:
             if service is None:
                 service = DialogueService(
                     self.config,
-                    get_status=_demo_status,
+                    get_status=_sensor_provider.status,
                     event_store=self._event_store,
                     conversation_backend=self._backend,
                     session_id=session_id,

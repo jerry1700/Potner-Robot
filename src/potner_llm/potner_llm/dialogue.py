@@ -1,14 +1,25 @@
 from __future__ import annotations
 
+import logging
 from typing import Any, Callable, Optional
 
 from .client import ChatMessage, LlmClient, create_llm_client
+from .context_builder import DEFAULT_MAX_CONTEXT_TOKENS, ContextBuilder, trim_history
 from .conversation_backend import ConversationBackend
 from .events import EventStore
+from .factcheck import (
+    ACTION_RETRY,
+    DEFAULT_POLICY,
+    next_action,
+    snapshot_from_status,
+    verify_response,
+)
 from .prompts import briefing_user_prompt, report_user_prompt
 from .status import PlantStatus
 from .templates import render_briefing, render_report
 from .tools import ToolHub
+
+logger = logging.getLogger(__name__)
 
 StatusProvider = Callable[[], PlantStatus]
 
@@ -31,6 +42,9 @@ class DialogueService:
         get_status: StatusProvider,
         event_store: EventStore,
         max_history_turns: int = 10,
+        max_context_tokens: int = DEFAULT_MAX_CONTEXT_TOKENS,
+        user_profile: Optional[dict[str, Any]] = None,
+        verify_facts: bool = True,
         conversation_backend: Optional[ConversationBackend] = None,
         session_id: str = "default",
     ) -> None:
@@ -39,6 +53,14 @@ class DialogueService:
         self.event_store = event_store
         self.llm: LlmClient = create_llm_client(config)
         self._max_history_turns = max_history_turns
+        # 사용자 정보는 아직 공용 모델이 없어 가벼운 dict로 받는다
+        # (예: {"이름": "동규", "호칭": "주인님"}). 시스템 프롬프트에만 실린다.
+        self._user_profile = user_profile
+        self._verify_facts = verify_facts
+        self._context_builder = ContextBuilder(
+            max_history_turns=max_history_turns,
+            max_context_tokens=max_context_tokens,
+        )
         self._backend = conversation_backend
         self._session_id = session_id
         self._history: list[ChatMessage] = (
@@ -73,20 +95,47 @@ class DialogueService:
 
         if self.llm.available():
             try:
-                context = self._bounded_history() + [user_message]
-                reply = self.llm.chat_with_tools(context, tools)
+                # 상태 요약/사용자 정보는 시스템 프롬프트로, 사용자 발화는
+                # 별도 user 메시지로 유지한다 (프롬프트 주입 방지 불변식).
+                context = self._context_builder.build(
+                    history=self._history,
+                    user_text=user_text,
+                    status_dict=status.to_prompt_dict(),
+                    user_profile=self._user_profile,
+                )
+                fact = None
+                for attempt in range(DEFAULT_POLICY.max_retries + 1):
+                    reply = self.llm.chat_with_tools(
+                        context.messages, tools, system=context.system_prompt
+                    )
+                    if not self._verify_facts:
+                        break
+                    # 사실성 검증 — 상태와 상충하는 답이면 1회 재생성 후 폴백
+                    fact = verify_response(reply, snapshot_from_status(status))
+                    if next_action(fact, attempt) != ACTION_RETRY:
+                        break
+                if fact is not None and not fact.ok:
+                    logger.warning(
+                        "chat_once 사실성 검증 실패 — 상태 기반 폴백으로 대체 (%s)",
+                        ", ".join(fact.issue_codes),
+                    )
+                    reply = f"음, 방금은 말이 좀 꼬였나 봐. {self._grounded_reply(status)}"
                 self._remember_turn(user_message, ChatMessage(role="assistant", content=reply))
                 return reply
             except RuntimeError:
                 pass
 
-        reply = (
-            f"지금은 로컬 모드야. 현재 상태는 {status.summary_ko}. "
+        reply = f"지금은 로컬 모드야. {self._grounded_reply(status)}"
+        self._remember_turn(user_message, ChatMessage(role="assistant", content=reply))
+        return reply
+
+    def _grounded_reply(self, status: PlantStatus) -> str:
+        """센서 상태만으로 만드는 안전한 답 — 오프라인/검증 실패 폴백 공용."""
+        return (
+            f"현재 상태는 {status.summary_ko}. "
             f"(토양 {status.soil.label_ko} / 온도 {status.temperature.label_ko} / "
             f"습도 {status.humidity.label_ko} / 조도 {status.light.label_ko})"
         )
-        self._remember_turn(user_message, ChatMessage(role="assistant", content=reply))
-        return reply
 
     def reset_history(self) -> None:
         """대화 맥락만 지운다 (백엔드 저장 없이). 예: 도중에 화제를 리셋할 때."""
@@ -123,10 +172,8 @@ class DialogueService:
         ]
 
     def _bounded_history(self) -> list[ChatMessage]:
-        max_messages = self._max_history_turns * 2
-        if max_messages <= 0:
-            return list(self._history)
-        return self._history[-max_messages:]
+        """최근 대화만 잘라낸다 — 교환(exchange) 단위라 툴콜 쌍이 안 끊긴다."""
+        return trim_history(self._history, max_messages=self._max_history_turns * 2)
 
     def _remember_turn(self, user_message: ChatMessage, assistant_message: ChatMessage) -> None:
         self._history.append(user_message)
