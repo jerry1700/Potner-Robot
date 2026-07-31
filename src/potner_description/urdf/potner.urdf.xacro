@@ -12,7 +12,7 @@
 <robot name="potner" xmlns:xacro="http://www.ros.org/wiki/xacro">
 
   <!-- ===== 실측 필요 (TODO) ===================================== -->
-  <xacro:property name="wheel_diameter"    value="0.075"/>  <!-- 확정: 75mm 구동 바퀴 -->
+  <xacro:property name="wheel_diameter"    value="0.060"/>  <!-- 확정: 60mm 구동 바퀴 -->
   <xacro:property name="wheel_width"       value="0.026"/>  <!-- TODO 실측 -->
   <xacro:property name="wheel_separation"  value="0.200"/>  <!-- 좌우 바퀴 중심 간 거리 -->
   <xacro:property name="body_diameter"     value="0.240"/>  <!-- 본체 외경 -->

@@ -15,7 +15,7 @@ _INT32_HALF = 1 << 31
 class DriveConfig:
     """로봇 실측값. potner_bringup/config/potner_params.yaml 에서 주입됩니다."""
 
-    wheel_diameter: float = 0.075  # 확정 — 75mm 구동 바퀴
+    wheel_diameter: float = 0.060  # 확정 — 60mm 구동 바퀴
     wheel_separation: float = 0.200  # TODO 실측 — 좌우 바퀴 중심 간 거리 (m)
     counts_per_rev: int = 1440  # 확정 — FIT0403 출력축 CPR
     max_wheel_speed: float = 0.25  # 안전 제한 (m/s). 이론 최대는 약 0.48

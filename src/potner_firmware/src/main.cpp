@@ -30,7 +30,7 @@ constexpr int PIN_R_ENC_B = 39;
 
 // ===== 하드웨어 상수 =======================================================
 constexpr float COUNTS_PER_REV   = 1440.0f;  // FIT0403 출력축 (확정값)
-constexpr float WHEEL_DIAMETER_M = 0.065f;   // TODO 실측
+constexpr float WHEEL_DIAMETER_M = 0.060f;   // 확정 — 60mm 구동 바퀴
 constexpr float MAX_WHEEL_MPS    = 0.25f;
 
 constexpr int PWM_FREQ_HZ   = 20000;  // 가청 대역 밖
