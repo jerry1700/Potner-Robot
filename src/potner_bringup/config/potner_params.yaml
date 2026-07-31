@@ -78,6 +78,16 @@ mission_manager:
     service_duration: 10.0      # 스테이션 서비스 대기 시간 (s)
     docking_timeout: 90.0
 
+    # 귀가 알림(command/greet) 후 인사가 무장되는 시간 (s).
+    # 이 시간 안에 사람이 보여야 인사합니다. 아무 때나 인사하면 집에 있던
+    # 가족이 지나가도 인사하기 때문에, 귀가 알림이 있어야만 인사합니다.
+    greet_arm_duration: 600.0
+
+    # 맞이 위치 — 현관이 보이는 지점 [x, y, yaw(rad)].
+    # 전부 0 이면 미설정으로 보고 이동 없이 제자리에서 인사를 기다립니다.
+    # TODO: SLAM 지도를 만든 뒤 실제 좌표로 채울 것 (station_poses 와 함께).
+    greet_pose: [0.0, 0.0, 0.0]
+
     # 지도가 없을 때 도킹만 따로 시험하기 위한 우회 스위치.
     # true 면 Nav2 이동을 건너뛰고 바로 도킹 액션을 보냅니다.
     skip_navigation: false
