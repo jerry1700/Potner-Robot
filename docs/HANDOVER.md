@@ -1,6 +1,6 @@
 # 인수인계 — 로봇 파트
 
-2026-07-31 기준. 작성: 한동규 (dongkyu.han20@gmail.com)
+2026-07-31 기준. 작성: 제다빈 (notbad1700@gmail.com)
 
 읽는 순서: 이 문서 → [`README.md`](../README.md)(빌드·실행) →
 [`docs/DEVICE-MQTT.md`](DEVICE-MQTT.md)(서버 연동, **최우선 기준**).
