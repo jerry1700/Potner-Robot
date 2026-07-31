@@ -71,6 +71,13 @@ mission_manager:
     # legacy/main.py 의 임계값을 그대로 옮겼습니다.
     battery_percent: 20.0
     moisture_percent: 30.0
+
+    # ★ 실측 전 임시값. legacy 코드에서 그대로 가져왔을 뿐 이 로봇이 놓일
+    # 자리에서 잰 값이 아닙니다. 200lux 는 평범한 실내 조명보다 어두워서,
+    # 이 값을 그대로 쓰면 낮에도 계속 "빛이 부족하다"고 판단해 일광욕
+    # 임무가 쉬지 않고 걸릴 수 있습니다. 식물이 실제로 놓일 자리에서
+    #   ros2 topic echo /plant/lux --once
+    # 로 낮/저녁/조명 끈 상태를 재고 그 사이 값으로 바꾸세요.
     light_lux: 200.0
     temperature_celsius: 30.0
     evaluate_period: 2.0
