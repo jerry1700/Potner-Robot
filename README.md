@@ -67,6 +67,7 @@ legacy/                   ROS 2 전환 이전 코드 (참고용, 실행되지 �
 | [`docs/DEVICE-MQTT.md`](docs/DEVICE-MQTT.md) | **서버 연동 명세 (서버 팀 관리, 최우선 기준)** |
 | [`docs/MQTT_CONTRACT.md`](docs/MQTT_CONTRACT.md) | MQTT 로봇 쪽 구현 노트 |
 | [`docs/JETSON_DISPLAY.md`](docs/JETSON_DISPLAY.md) | 젯슨 화면 세팅 (표정 표시 전 필독) |
+| [`docs/WIRING.md`](docs/WIRING.md) | 장치별 배선·핀·역할 |
 | [`docs/HANDOVER.md`](docs/HANDOVER.md) | 인수인계 — 진행 상황과 다음 작업 |
 
 **노드 파일과 계산 로직을 파일 단위로 분리**한 것이 설계의 핵심입니다.
