@@ -33,17 +33,15 @@ pipeline {
                 sh '''
                     . venv/bin/activate
                     pip install --upgrade pip
-                    
-                    # CI 서버(Linux)와 실제 로봇(Jetson) 환경의 차이로 인한 CUDA 패키지 충돌 방지
-                    # 원본에서 cuda, nvidia, torch 관련 내용을 제외한 CI용 요구사항 파일 생성
-                    grep -vE 'cuda-toolkit|nvidia-|torch' requirements.txt > requirements_ci.txt
-                    
-                    # CI(서버) 환경에서는 무거운 GPU 버전 대신 가벼운 CPU 버전의 PyTorch를 설치
-                    pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
-                    
-                    # 나머지 프로젝트 의존성 설치
+
+                    # requirements_ci.txt 는 저장소에 커밋된 파일입니다. 예전에는
+                    # requirements.txt(젯슨 전용)에서 grep 으로 즉석 생성했는데,
+                    # 그러면 테스트가 쓰지 않는 패키지 수십 개(matplotlib, pandas,
+                    # ultralytics, CPU torch 등 기가바이트급)까지 매번 설치해서
+                    # 느리고, 그중 하나만 pip 에서 깨져도 CI 전체가 죽습니다.
+                    # 테스트가 실제로 import 하는 것만 골라 둔 목록을 씁니다.
                     pip install -r requirements_ci.txt
-                    
+
                     # CI 검증을 위한 추가 패키지 설치
                     pip install pytest flake8
                 '''
