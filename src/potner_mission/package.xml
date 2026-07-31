@@ -4,7 +4,7 @@
   <name>potner_mission</name>
   <version>0.1.0</version>
   <description>센서 상태에 따라 임무를 판단하는 상태 머신과 최우선 안전 정지 노드</description>
-  <maintainer email="dongkyu.han20@gmail.com">E104</maintainer>
+  <maintainer email="notbad1700@gmail.com">E104</maintainer>
   <license>MIT</license>
 
   <exec_depend>rclpy</exec_depend>

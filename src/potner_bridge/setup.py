@@ -15,7 +15,7 @@ setup(
     install_requires=["setuptools"],
     zip_safe=True,
     maintainer="E104",
-    maintainer_email="dongkyu.han20@gmail.com",
+    maintainer_email="notbad1700@gmail.com",
     description="Mosquitto MQTT 브로커와 ROS 2 토픽을 잇는 외부 연동 계층",
     license="MIT",
     entry_points={

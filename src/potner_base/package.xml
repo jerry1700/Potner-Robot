@@ -4,7 +4,7 @@
   <name>potner_base</name>
   <version>0.1.0</version>
   <description>로봇 하드웨어 계층 — ESP32 시리얼 통신, 차동 구동 기구학과 오도메트리, I2C 식물·배터리 센서, 표정 화면</description>
-  <maintainer email="dongkyu.han20@gmail.com">E104</maintainer>
+  <maintainer email="notbad1700@gmail.com">E104</maintainer>
   <license>MIT</license>
 
   <exec_depend>rclpy</exec_depend>

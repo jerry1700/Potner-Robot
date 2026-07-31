@@ -4,7 +4,7 @@
   <name>potner_bridge</name>
   <version>0.1.0</version>
   <description>Mosquitto MQTT 브로커와 ROS 2 토픽을 잇는 외부 연동 계층</description>
-  <maintainer email="dongkyu.han20@gmail.com">E104</maintainer>
+  <maintainer email="notbad1700@gmail.com">E104</maintainer>
   <license>MIT</license>
 
   <exec_depend>rclpy</exec_depend>

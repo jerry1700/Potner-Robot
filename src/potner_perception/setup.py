@@ -16,7 +16,7 @@ setup(
     install_requires=["setuptools"],
     zip_safe=True,
     maintainer="E104",
-    maintainer_email="dongkyu.han20@gmail.com",
+    maintainer_email="notbad1700@gmail.com",
     description="카메라 영상에서 사람과 ArUco 스테이션 마커를 찾는 인지 계층",
     license="MIT",
     entry_points={
