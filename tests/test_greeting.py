@@ -78,6 +78,14 @@ def test_재무장하면_시간창이_연장된다():
     assert p.should_greet(500.0 + 599.0, person_present=True) is True
 
 
+def test_서버가_준_대기시간을_이번_귀가에_적용한다():
+    p = policy()
+    p.arm(100.0, duration=120.0)
+
+    assert p.should_greet(219.9, person_present=True) is True
+    assert p.should_greet(220.0, person_present=True) is False
+
+
 def test_수동_해제():
     p = policy()
     p.arm(100.0)

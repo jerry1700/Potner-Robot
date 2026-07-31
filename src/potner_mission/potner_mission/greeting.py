@@ -33,22 +33,30 @@ class GreetingPolicy:
     arm_duration: float = 600.0
     cooldown: float = 300.0
     _armed_at: float = field(default=None, repr=False)
+    _armed_duration: float = field(default=None, repr=False)
     _last_greeting: float = field(default=None, repr=False)
 
-    def arm(self, now: float) -> None:
-        """귀가 알림을 받았습니다. 이미 무장 중이면 시간창만 연장됩니다."""
+    def arm(self, now: float, duration: float = None) -> None:
+        """귀가 알림을 받고 서버가 준 대기시간으로 이번 시간창을 엽니다."""
+        if duration is not None and duration <= 0:
+            raise ValueError("인사 대기시간은 양수여야 합니다.")
         self._armed_at = now
+        self._armed_duration = (
+            self.arm_duration if duration is None else float(duration)
+        )
 
     def disarm(self) -> None:
         self._armed_at = None
+        self._armed_duration = None
 
     def is_armed(self, now: float) -> bool:
         if self._armed_at is None:
             return False
-        if now - self._armed_at >= self.arm_duration:
+        if now - self._armed_at >= self._armed_duration:
             # 시간창이 지났으면 상태도 정리합니다. 며칠 뒤의 now 가 다시
             # 들어와도 낡은 _armed_at 이 남아 있지 않게.
             self._armed_at = None
+            self._armed_duration = None
             return False
         return True
 
@@ -76,3 +84,4 @@ class GreetingPolicy:
         """
         self._last_greeting = now
         self._armed_at = None
+        self._armed_duration = None
