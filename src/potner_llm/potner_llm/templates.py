@@ -20,6 +20,25 @@ def render_briefing(status: PlantStatus) -> str:
     )
 
 
+def render_diary(
+    status: PlantStatus,
+    events: list[dict[str, Any]] | None = None,
+    date: str | None = None,
+) -> str:
+    """LLM 없이(키 없음/검증 실패) 기록만으로 만드는 일기 폴백."""
+    opening = f"{date}의 일기. " if date else ""
+    highlights = [str(e.get("message", "")) for e in (events or [])[-3:] if e.get("message")]
+    if highlights:
+        happened = f"오늘은 이런 일이 있었어: {'; '.join(highlights)}. "
+    else:
+        happened = "오늘은 별다른 일 없이 조용한 하루였어. "
+    if status.needs_attention:
+        feeling = f"몸 상태는 조금 신경 쓰여 — {status.summary_ko}. 내일은 좀 나아지면 좋겠다."
+    else:
+        feeling = f"몸 상태는 괜찮아. {status.summary_ko}. 내일도 이런 하루였으면 좋겠어."
+    return f"{opening}{happened}{feeling}"
+
+
 def render_report(events: list[dict[str, Any]], status: PlantStatus) -> str:
     if not events:
         return (

@@ -14,9 +14,14 @@ from .factcheck import (
     snapshot_from_status,
     verify_response,
 )
-from .prompts import briefing_user_prompt, report_user_prompt
+from .prompts import (
+    briefing_user_prompt,
+    diary_system_prompt,
+    diary_user_prompt,
+    report_user_prompt,
+)
 from .status import PlantStatus
-from .templates import render_briefing, render_report
+from .templates import render_briefing, render_diary, render_report
 from .tools import ToolHub
 
 logger = logging.getLogger(__name__)
@@ -87,6 +92,46 @@ class DialogueService:
                 report_user_prompt(events, status.to_prompt_dict())
             )
         return text or render_report(events, status)
+
+    def diary(
+        self,
+        *,
+        date: Optional[str] = None,
+        limit: int = 40,
+        persona: Optional[dict[str, Any]] = None,
+        user_activities: Optional[list[Any]] = None,
+    ) -> str:
+        """오늘 하루를 식물 1인칭 일기로 쓴다.
+
+        상태 + 이벤트 로그(+ 사용자 상호작용 기록)를 근거 자료로 넘기고,
+        생성 결과는 chat_once와 같은 사실성 검증을 거친다 — 상태와 상충하는
+        일기(지어낸 수치·급수 등)는 버리고 기록 기반 템플릿으로 폴백한다.
+        """
+        status = self._get_status()
+        events = self.event_store.recent(limit=limit)
+        text: Optional[str] = None
+        if self.llm.available():
+            try:
+                text = self.llm.complete(
+                    diary_user_prompt(
+                        status.to_prompt_dict(),
+                        events,
+                        date=date,
+                        user_activities=user_activities,
+                    ),
+                    system=diary_system_prompt(persona),
+                )
+                if text and self._verify_facts:
+                    fact = verify_response(text, snapshot_from_status(status))
+                    if not fact.ok:
+                        logger.warning(
+                            "일기 사실성 검증 실패 — 템플릿 폴백 (%s)",
+                            ", ".join(fact.issue_codes),
+                        )
+                        text = None
+            except RuntimeError:
+                text = None
+        return text or render_diary(status, events, date=date)
 
     def chat_once(self, user_text: str) -> str:
         status = self._get_status()
