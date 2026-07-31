@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from .config import ServiceSettings
 from .models import PlantProfile, SensorSnapshot
+from .sensor_provider import attention_messages, classify_metric
 
 
 def build_system_prompt(
@@ -15,20 +16,30 @@ def build_system_prompt(
 
     사용자 질문은 시스템 프롬프트가 아니라 user 메시지로 따로 전달한다 —
     질문을 시스템 프롬프트에 섞으면 프롬프트 주입에 더 취약해진다.
+
+    원시값에 판정 라벨(건조/적정/과습 등)을 붙여 준다 — "42%"만 주면
+    LLM이 그게 마른 건지 젖은 건지 스스로 지어내기 때문이다.
     """
     sensor_lines = []
     if sensors.soil is not None:
-        sensor_lines.append(f"- 토양 수분: {sensors.soil:g}%")
+        label = classify_metric("soil", sensors.soil).label_ko
+        sensor_lines.append(f"- 토양 수분: {sensors.soil:g}% ({label})")
     if sensors.temp is not None:
-        sensor_lines.append(f"- 온도: {sensors.temp:g}°C")
+        label = classify_metric("temperature", sensors.temp).label_ko
+        sensor_lines.append(f"- 온도: {sensors.temp:g}°C ({label})")
     if sensors.humidity is not None:
-        sensor_lines.append(f"- 습도: {sensors.humidity:g}%")
+        label = classify_metric("humidity", sensors.humidity).label_ko
+        sensor_lines.append(f"- 습도: {sensors.humidity:g}% ({label})")
     if sensors.light is not None:
-        sensor_lines.append(f"- 조도: {sensors.light:g} lux")
+        label = classify_metric("light", sensors.light).label_ko
+        sensor_lines.append(f"- 조도: {sensors.light:g} lux ({label})")
     if sensors.co2 is not None:
         sensor_lines.append(f"- CO₂: {sensors.co2:g} ppm")
     if sensors.photo_summary:
         sensor_lines.append(f"- 최근 촬영 결과: {sensors.photo_summary}")
+    issues = attention_messages(sensors)
+    if issues:
+        sensor_lines.append(f"- 주의 상태: {', '.join(issues)}")
     sensor_block = "\n".join(sensor_lines) if sensor_lines else "- (센서 데이터 없음)"
 
     watered = (
