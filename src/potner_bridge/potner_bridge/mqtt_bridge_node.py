@@ -28,6 +28,16 @@ import rclpy
 from rclpy.node import Node
 from std_msgs.msg import Float32, String
 
+from potner_bridge.arrival_contract import (
+    WELCOME_CANCEL,
+    WELCOME_START,
+    ArrivalCommandError,
+    arrival_command_json,
+    arrival_result_message,
+    arrival_result_topic,
+    parse_arrival_command,
+    parse_result_envelope,
+)
 from potner_bridge.telemetry import (
     SensorType,
     battery_message,
@@ -98,12 +108,14 @@ class MqttBridge(Node):
         # 않습니다 — 식물 상태를 아는 쪽이 서버라서 그쪽이 정합니다.
         self._expression_pub = self.create_publisher(String, "display/expression", 10)
         self._reason_pub = self.create_publisher(String, "display/reason", 10)
-        # 귀가 알림(앱 지오펜스 -> 서버). mission_manager 가 받아 인사를
-        # 무장하고 맞이 위치로 이동합니다.
-        # ★ 서버 쪽 발행은 아직 미구현입니다 (DEVICE-MQTT.md 12절 7번 답변
-        #   대기). 토픽이 열리기 전에는 ROS 로 직접 넣어 시험합니다:
-        #   ros2 topic pub -t 3 /mission/greet_command std_msgs/msg/String "{data: ''}"
-        self._greet_pub = self.create_publisher(String, "mission/greet_command", 10)
+        # 서버의 welcome_start/cancel을 검증한 뒤 mission_manager에 전달합니다.
+        # mission_manager 결과는 다시 서버 result/<command> 토픽으로 보냅니다.
+        self._arrival_command_pub = self.create_publisher(
+            String, "mission/arrival_command", 10
+        )
+        self.create_subscription(
+            String, "mission/arrival_result", self._on_arrival_result, 10
+        )
 
         self._command_topic = command_topic(self._device_id)
         self._client = self._connect()
@@ -196,12 +208,32 @@ class MqttBridge(Node):
 
     def _on_message(self, client, userdata, message):
         """서버가 보낸 명령. ACL 이 command/# 만 읽기 허용합니다."""
-        if message.topic.endswith("/command/greet"):
-            # 귀가 알림. 페이로드 형식이 서버 팀과 아직 미확정이라 내용은
-            # 해석하지 않고 그대로 넘깁니다. 무장에는 도착 사실만 필요합니다.
-            payload = message.payload.decode("utf-8", errors="ignore")
-            self._greet_pub.publish(String(data=payload))
-            self.get_logger().info("귀가 알림 수신 -> mission/greet_command")
+        command_name = message.topic.rsplit("/", 1)[-1]
+        if command_name in {WELCOME_START, WELCOME_CANCEL}:
+            try:
+                command = parse_arrival_command(command_name, message.payload)
+            except ArrivalCommandError as exc:
+                self.get_logger().error(
+                    f"귀가 명령 거부: command={command_name}, code={exc.code}, "
+                    f"reason={exc}"
+                )
+                if exc.request_id is not None:
+                    self._publish_arrival_result(
+                        command_name,
+                        exc.request_id,
+                        "ERROR",
+                        error=str(exc),
+                        code=exc.code,
+                    )
+                return
+
+            self._arrival_command_pub.publish(
+                String(data=arrival_command_json(command))
+            )
+            self.get_logger().info(
+                f"귀가 명령 수신 -> mission/arrival_command "
+                f"(command={command_name}, visitId={command.visit_id})"
+            )
             return
 
         if not message.topic.endswith("/command/expression"):
@@ -222,6 +254,45 @@ class MqttBridge(Node):
             f"표정 수신: {expression} (사유 {reason or '없음'})",
             throttle_duration_sec=120.0,
         )
+
+    def _on_arrival_result(self, msg: String):
+        """mission_manager 결과를 서버가 구독하는 MQTT 토픽으로 중계합니다."""
+        try:
+            result = parse_result_envelope(msg.data)
+        except ArrivalCommandError as exc:
+            self.get_logger().error(f"귀가 내부 결과 거부: {exc}")
+            return
+
+        self._publish_arrival_result(
+            result["commandName"],
+            result["requestId"],
+            result["status"],
+            error=result["error"],
+            code=result["code"],
+        )
+
+    def _publish_arrival_result(
+        self,
+        command_name: str,
+        request_id: str,
+        status: str,
+        *,
+        error=None,
+        code=None,
+    ):
+        topic = arrival_result_topic(self._device_id, command_name)
+        payload = arrival_result_message(
+            self._device_id,
+            request_id,
+            status,
+            error=error,
+            code=code,
+        )
+        if self._publish(topic, payload, "귀가 결과"):
+            self.get_logger().info(
+                f"귀가 결과 발행: command={command_name}, "
+                f"requestId={request_id}, status={status}"
+            )
 
     # --- ROS ---
 
