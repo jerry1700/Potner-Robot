@@ -114,9 +114,13 @@ pattern read  potner/device/%u/command/#
   potner/device/<device_uid>/status/heartbeat     생존 신호          파이·젯슨
   potner/device/<device_uid>/status/state         로봇 행동 상태     젯슨만
   potner/device/<device_uid>/status/battery       배터리 잔량        젯슨만
+  potner/device/<device_uid>/result/welcome_start 귀가 마중 도착 회신 젯슨만
+  potner/device/<device_uid>/result/welcome_cancel HOME 복귀 회신     젯슨만
 
 서버 → 장치
   potner/device/<device_uid>/command/expression   디스플레이 표정    젯슨이 구독
+  potner/device/<device_uid>/command/welcome_start 귀가 마중 시작     젯슨이 구독
+  potner/device/<device_uid>/command/welcome_cancel 귀가 마중 취소    젯슨이 구독
 ```
 
 **같은 문자열이 네 곳에서 일치해야 합니다.**
