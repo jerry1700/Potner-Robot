@@ -16,33 +16,21 @@ from potner_bridge.arrival_contract import (
     WelcomeStartCommand,
 )
 
+# 이동 명령과 판정 종류가 같다. 재수출해 두어 기존 import 경로가 유지된다.
+from potner_mission.command_session import (  # noqa: F401
+    CommandDecision,
+    DecisionKind,
+    MissionResult,
+)
+
+DEFAULT_BUSY_ERROR = "다른 임무를 수행 중입니다."
+DEFAULT_BUSY_CODE = "ROBOT_BUSY"
+
 
 class ArrivalStage(Enum):
     NAVIGATING_GREETING = auto()
     WAITING_AT_GREETING = auto()
     NAVIGATING_HOME = auto()
-
-
-class DecisionKind(Enum):
-    ACCEPTED = auto()
-    DUPLICATE_PENDING = auto()
-    REPLAY = auto()
-    BUSY = auto()
-
-
-@dataclass(frozen=True)
-class MissionResult:
-    command_name: str
-    request_id: str
-    status: str
-    error: Optional[str] = None
-    code: Optional[str] = None
-
-
-@dataclass(frozen=True)
-class CommandDecision:
-    kind: DecisionKind
-    result: Optional[MissionResult] = None
 
 
 @dataclass
@@ -68,8 +56,20 @@ class ArrivalSessionController:
         self._result_cache_size = result_cache_size
 
     def accept_start(
-        self, command: WelcomeStartCommand, now: float, robot_idle: bool
+        self,
+        command: WelcomeStartCommand,
+        now: float,
+        robot_idle: bool,
+        *,
+        busy_error: Optional[str] = None,
+        busy_code: Optional[str] = None,
     ) -> CommandDecision:
+        """마중을 시작할지 정한다.
+
+        ``busy_error``/``busy_code`` 는 호출자가 아는 거절 사유다. 로봇이
+        급수 스테이션에 대어 놓은 상태처럼, 여기서는 보이지 않고
+        mission_manager 만 아는 이유를 서버에 그대로 전달하기 위한 것이다.
+        """
         replay = self._results.get(command.request_id)
         if replay is not None:
             return CommandDecision(DecisionKind.REPLAY, replay)
@@ -85,8 +85,8 @@ class ArrivalSessionController:
                     WELCOME_START,
                     command.request_id,
                     "BUSY",
-                    "다른 임무를 수행 중입니다.",
-                    "ROBOT_BUSY",
+                    busy_error or DEFAULT_BUSY_ERROR,
+                    busy_code or DEFAULT_BUSY_CODE,
                 ),
             )
 
@@ -103,7 +103,13 @@ class ArrivalSessionController:
         return CommandDecision(DecisionKind.ACCEPTED)
 
     def accept_cancel(
-        self, command: WelcomeCancelCommand, now: float, robot_idle: bool
+        self,
+        command: WelcomeCancelCommand,
+        now: float,
+        robot_idle: bool,
+        *,
+        busy_error: Optional[str] = None,
+        busy_code: Optional[str] = None,
     ) -> CommandDecision:
         replay = self._results.get(command.request_id)
         if replay is not None:
@@ -123,7 +129,11 @@ class ArrivalSessionController:
         if self.active is not None and self.active.visit_id != command.visit_id:
             return self._busy_cancel(command, "다른 방문의 귀가 임무를 수행 중입니다.")
         if self.active is None and not robot_idle:
-            return self._busy_cancel(command, "다른 임무를 수행 중입니다.")
+            # 귀가 세션 밖의 임무가 로봇을 붙들고 있다. 그 사유는 여기서
+            # 보이지 않으므로 호출자가 준 것을 그대로 쓴다.
+            return self._busy_cancel(
+                command, busy_error or DEFAULT_BUSY_ERROR, busy_code
+            )
 
         if self.active is None:
             self.active = ArrivalSession(
@@ -218,7 +228,10 @@ class ArrivalSessionController:
             self._results.popitem(last=False)
 
     def _busy_cancel(
-        self, command: WelcomeCancelCommand, error: str
+        self,
+        command: WelcomeCancelCommand,
+        error: str,
+        code: Optional[str] = None,
     ) -> CommandDecision:
         return CommandDecision(
             DecisionKind.BUSY,
@@ -227,7 +240,7 @@ class ArrivalSessionController:
                 command.request_id,
                 "BUSY",
                 error,
-                "ROBOT_BUSY",
+                code or DEFAULT_BUSY_CODE,
             ),
         )
 

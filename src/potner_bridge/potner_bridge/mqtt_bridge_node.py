@@ -4,9 +4,15 @@ ROS 2와 MQTT는 서로 다른 세계입니다. 로봇 내부는 ROS 토픽으�
 MQTT로 이야기합니다. 이 노드가 그 사이를 번역합니다.
 
     올려보냄   센서 측정값 (측정값 하나당 메시지 하나), 하트비트,
-               로봇 상태, 배터리 잔량
+               로봇 상태, 배터리 잔량, 명령 결과 회신
+    내려받음   표정, 귀가 마중(welcome_start/cancel), 이동(navigate)
 
-메시지 형식은 potner_bridge.telemetry 에 모아뒀습니다. 기준 문서는
+명령을 여기서 직접 수행하지 않습니다. 검증만 하고 ROS 토픽으로 넘긴 뒤
+mission_manager 의 결과를 받아 서버로 되돌립니다. Nav2 목표의 주인이
+둘이 되면 서로를 취소하기 때문입니다.
+
+메시지 형식은 potner_bridge.telemetry(측정값)와 command_result·
+arrival_contract·navigate_contract(명령·결과)에 모아뒀습니다. 기준 문서는
 docs/DEVICE-MQTT.md 이고 서버 팀이 관리합니다.
 
 브로커 ACL 이 접근 범위를 정합니다 (DEVICE-MQTT.md 3절).
@@ -33,10 +39,18 @@ from potner_bridge.arrival_contract import (
     WELCOME_START,
     ArrivalCommandError,
     arrival_command_json,
-    arrival_result_message,
-    arrival_result_topic,
     parse_arrival_command,
+)
+from potner_bridge.command_result import (
+    NAVIGATE,
+    CommandError,
     parse_result_envelope,
+    result_message,
+    result_topic,
+)
+from potner_bridge.navigate_contract import (
+    navigate_command_json,
+    parse_navigate_command,
 )
 from potner_bridge.telemetry import (
     SensorType,
@@ -113,9 +127,14 @@ class MqttBridge(Node):
         self._arrival_command_pub = self.create_publisher(
             String, "mission/arrival_command", 10
         )
-        self.create_subscription(
-            String, "mission/arrival_result", self._on_arrival_result, 10
+        # 서버의 navigate도 같은 모양입니다. 자동 급수·촬영·말리기·햇빛
+        # 이동 네 기능이 전부 이 명령으로 시작합니다.
+        self._navigate_command_pub = self.create_publisher(
+            String, "mission/navigate_command", 10
         )
+        # 결과 봉투에 commandName이 들어 있어 두 토픽을 한 콜백으로 받습니다.
+        for topic in ("mission/arrival_result", "mission/navigate_result"):
+            self.create_subscription(String, topic, self._on_command_result, 10)
 
         self._command_topic = command_topic(self._device_id)
         self._client = self._connect()
@@ -209,6 +228,34 @@ class MqttBridge(Node):
     def _on_message(self, client, userdata, message):
         """서버가 보낸 명령. ACL 이 command/# 만 읽기 허용합니다."""
         command_name = message.topic.rsplit("/", 1)[-1]
+        if command_name == NAVIGATE:
+            try:
+                command = parse_navigate_command(message.payload)
+            except CommandError as exc:
+                self.get_logger().error(
+                    f"이동 명령 거부: code={exc.code}, reason={exc}"
+                )
+                if exc.request_id is not None:
+                    # 거절도 회신해야 서버가 제한시간까지 기다리지 않습니다.
+                    self._publish_command_result(
+                        NAVIGATE,
+                        exc.request_id,
+                        "ERROR",
+                        error=str(exc),
+                        code=exc.code,
+                    )
+                return
+
+            self._navigate_command_pub.publish(
+                String(data=navigate_command_json(command))
+            )
+            self.get_logger().info(
+                f"이동 명령 수신 -> mission/navigate_command "
+                f"(destination={command.destination}, "
+                f"requestId={command.request_id})"
+            )
+            return
+
         if command_name in {WELCOME_START, WELCOME_CANCEL}:
             try:
                 command = parse_arrival_command(command_name, message.payload)
@@ -218,7 +265,7 @@ class MqttBridge(Node):
                     f"reason={exc}"
                 )
                 if exc.request_id is not None:
-                    self._publish_arrival_result(
+                    self._publish_command_result(
                         command_name,
                         exc.request_id,
                         "ERROR",
@@ -255,15 +302,15 @@ class MqttBridge(Node):
             throttle_duration_sec=120.0,
         )
 
-    def _on_arrival_result(self, msg: String):
+    def _on_command_result(self, msg: String):
         """mission_manager 결과를 서버가 구독하는 MQTT 토픽으로 중계합니다."""
         try:
             result = parse_result_envelope(msg.data)
-        except ArrivalCommandError as exc:
-            self.get_logger().error(f"귀가 내부 결과 거부: {exc}")
+        except CommandError as exc:
+            self.get_logger().error(f"내부 결과 거부: {exc}")
             return
 
-        self._publish_arrival_result(
+        self._publish_command_result(
             result["commandName"],
             result["requestId"],
             result["status"],
@@ -271,7 +318,7 @@ class MqttBridge(Node):
             code=result["code"],
         )
 
-    def _publish_arrival_result(
+    def _publish_command_result(
         self,
         command_name: str,
         request_id: str,
@@ -280,17 +327,23 @@ class MqttBridge(Node):
         error=None,
         code=None,
     ):
-        topic = arrival_result_topic(self._device_id, command_name)
-        payload = arrival_result_message(
+        """결과를 ``result/<command>`` 로 보냅니다.
+
+        토픽 세그먼트와 페이로드 deviceId 를 같은 변수에서 만듭니다. 두
+        군데에 따로 적으면 대소문자가 어긋나 서버가 조용히 버립니다
+        (DEVICE-MQTT.md 4절).
+        """
+        topic = result_topic(self._device_id, command_name)
+        payload = result_message(
             self._device_id,
             request_id,
             status,
             error=error,
             code=code,
         )
-        if self._publish(topic, payload, "귀가 결과"):
+        if self._publish(topic, payload, "명령 결과"):
             self.get_logger().info(
-                f"귀가 결과 발행: command={command_name}, "
+                f"명령 결과 발행: command={command_name}, "
                 f"requestId={request_id}, status={status}"
             )
 

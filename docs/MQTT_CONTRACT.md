@@ -142,12 +142,13 @@ welcome_cancel
 
 QoS 1로 같은 명령이 다시 와도 `requestId` 결과 캐시로 이동을 중복 실행하지
 않습니다. 다른 `visitId`의 명령이나 다른 임무 중 새 시작은 `BUSY`, Nav2 실패는
-`ERROR`로 회신합니다. `autonomous_missions_enabled`의 운영 기본값은 `false`라
-서버 명령과 Jetson 자체 임계값 판단이 동시에 로봇을 움직이지 않습니다.
+`ERROR`로 회신합니다. Jetson은 자체 임계값 판단을 하지 않습니다 — 이동의
+트리거는 서버 명령뿐이라 둘이 동시에 로봇을 움직일 일이 없습니다.
+
+`command/navigate`도 같은 모양입니다. 자세한 계약과 확인 절차는
+[`NAVIGATE_TEST.md`](NAVIGATE_TEST.md)에 있습니다.
 
 ## 아직 미구현
 
-- **`command/navigate`** — 일반 스테이션 이동과 결과 반향. 귀가 전용
-  `welcome_start/cancel`과 별도 계약입니다
 - **`command/speech`** — 서버 팀에 추가를 요청해야 합니다. 현재 명세에 대사
   전달 토픽이 없습니다
