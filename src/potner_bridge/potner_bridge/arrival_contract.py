@@ -2,33 +2,37 @@
 
 이 모듈은 ROS에 의존하지 않는다. 브로커에서 받은 값을 움직임 코드에 넘기기 전에
 검증하고, 서버가 대조할 수 있는 결과 메시지를 만드는 단일 기준으로 사용한다.
+
+결과 토픽·결과 JSON·ROS 내부 봉투는 이동 명령과 형식이 같아서
+:mod:`potner_bridge.command_result` 에 모아 두었다. 여기서는 귀가 명령에만
+있는 제약(``eventId == requestId``, 목적지 고정)을 얹는다.
 """
 
 import json
-import math
 from dataclasses import asdict, dataclass
 from typing import Optional, Union
-from uuid import UUID, uuid4
+from uuid import UUID
 
-WELCOME_START = "welcome_start"
-WELCOME_CANCEL = "welcome_cancel"
-RESULT_STATUSES = {"OK", "ERROR", "BUSY"}
+from potner_bridge.command_result import (
+    RESULT_STATUSES,
+    WELCOME_CANCEL,
+    WELCOME_START,
+    CommandError,
+    MapPose,
+    pose_field,
+    require_request_id,
+    require_uuid,
+    result_envelope,
+    result_message,
+    result_topic,
+    validate_pose,
+)
+from potner_bridge.command_result import parse_result_envelope  # noqa: F401  재수출
 
+# 귀가 코드가 오래 쓴 이름이다. 같은 예외 클래스라 어느 쪽으로 잡아도 된다.
+ArrivalCommandError = CommandError
 
-class ArrivalCommandError(ValueError):
-    """안전하게 실행할 수 없는 귀가 명령."""
-
-    def __init__(self, code: str, message: str, request_id: Optional[str] = None):
-        super().__init__(message)
-        self.code = code
-        self.request_id = request_id
-
-
-@dataclass(frozen=True)
-class MapPose:
-    x: float
-    y: float
-    yaw: float
+ARRIVAL_COMMANDS = frozenset({WELCOME_START, WELCOME_CANCEL})
 
 
 @dataclass(frozen=True)
@@ -56,10 +60,8 @@ ArrivalCommand = Union[WelcomeStartCommand, WelcomeCancelCommand]
 
 
 def arrival_result_topic(device_id: str, command_name: str) -> str:
-    _require_device_id(device_id)
-    if command_name not in {WELCOME_START, WELCOME_CANCEL}:
-        raise ValueError(f"지원하지 않는 귀가 명령: {command_name}")
-    return f"potner/device/{device_id}/result/{command_name}"
+    _require_arrival_command(command_name)
+    return result_topic(device_id, command_name)
 
 
 def arrival_result_message(
@@ -72,26 +74,15 @@ def arrival_result_message(
     message_id: Optional[str] = None,
 ) -> str:
     """서버 ``CommandResultMessage``와 호환되는 JSON을 만든다."""
-    _require_device_id(device_id)
-    _require_uuid(request_id, "requestId")
-    if status not in RESULT_STATUSES:
-        raise ValueError(f"지원하지 않는 결과 상태: {status}")
-    if status == "OK" and (error is not None or code is not None):
-        raise ValueError("OK 결과에는 error/code를 넣을 수 없습니다.")
-
-    resolved_message_id = message_id or str(uuid4())
-    _require_uuid(resolved_message_id, "messageId")
-    payload = {
-        "messageId": resolved_message_id,
-        "deviceId": device_id,
-        "requestId": request_id,
-        "status": status,
-    }
-    if error:
-        payload["error"] = error
-    if code:
-        payload["code"] = code
-    return json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
+    require_uuid(request_id, "requestId")
+    return result_message(
+        device_id,
+        request_id,
+        status,
+        error=error,
+        code=code,
+        message_id=message_id,
+    )
 
 
 def parse_arrival_command(
@@ -131,8 +122,8 @@ def parse_arrival_command(
                 request_id,
             )
         _require_home(body, request_id)
-        greeting = _pose(body, "", request_id)
-        home = _pose(body, "return", request_id)
+        greeting = pose_field(body, "", request_id)
+        home = pose_field(body, "return", request_id)
         wait_seconds = _positive_int(body, "waitSeconds", request_id)
         total_timeout_seconds = _positive_int(
             body, "totalTimeoutSeconds", request_id
@@ -159,7 +150,7 @@ def parse_arrival_command(
             event_id=event_id,
             visit_id=visit_id,
             request_id=request_id,
-            home=_pose(body, "return", request_id),
+            home=pose_field(body, "return", request_id),
         )
 
     raise ArrivalCommandError(
@@ -192,17 +183,17 @@ def parse_internal_arrival_command(payload: Union[str, bytes]) -> ArrivalCommand
         visit_id = body["visit_id"]
         request_id = body["request_id"]
         home = MapPose(**body["home"])
-        _validate_pose(home, request_id)
-        _require_uuid(request_id, "requestId")
-        _require_uuid(event_id, "eventId")
+        validate_pose(home, request_id)
+        require_uuid(request_id, "requestId")
+        require_uuid(event_id, "eventId")
         if event_id != request_id:
             raise ValueError("eventId와 requestId 불일치")
-        _require_uuid(visit_id, "visitId")
+        require_uuid(visit_id, "visitId")
         if command_name == WELCOME_CANCEL:
             return WelcomeCancelCommand(event_id, visit_id, request_id, home)
         if command_name == WELCOME_START:
             greeting = MapPose(**body["greeting"])
-            _validate_pose(greeting, request_id)
+            validate_pose(greeting, request_id)
             wait_seconds = body["wait_seconds"]
             total_timeout_seconds = body["total_timeout_seconds"]
             if (
@@ -232,63 +223,9 @@ def parse_internal_arrival_command(payload: Union[str, bytes]) -> ArrivalCommand
     )
 
 
-def result_envelope(
-    command_name: str,
-    request_id: str,
-    status: str,
-    *,
-    error: Optional[str] = None,
-    code: Optional[str] = None,
-) -> str:
-    """mission_manager에서 MQTT bridge로 보내는 ROS 내부 결과."""
-    _require_uuid(request_id, "requestId")
-    if command_name not in {WELCOME_START, WELCOME_CANCEL}:
+def _require_arrival_command(command_name: str) -> None:
+    if command_name not in ARRIVAL_COMMANDS:
         raise ValueError(f"지원하지 않는 귀가 명령: {command_name}")
-    if status not in RESULT_STATUSES:
-        raise ValueError(f"지원하지 않는 결과 상태: {status}")
-    return json.dumps(
-        {
-            "commandName": command_name,
-            "requestId": request_id,
-            "status": status,
-            "error": error,
-            "code": code,
-        },
-        ensure_ascii=False,
-        separators=(",", ":"),
-    )
-
-
-def parse_result_envelope(payload: Union[str, bytes]) -> dict:
-    try:
-        if isinstance(payload, bytes):
-            payload = payload.decode("utf-8")
-        body = json.loads(payload)
-        command_name = body["commandName"]
-        request_id = body["requestId"]
-        status = body["status"]
-        _require_uuid(request_id, "requestId")
-        if command_name not in {WELCOME_START, WELCOME_CANCEL}:
-            raise ValueError("지원하지 않는 명령")
-        if status not in RESULT_STATUSES:
-            raise ValueError("지원하지 않는 상태")
-        error = body.get("error")
-        code = body.get("code")
-        if error is not None and not isinstance(error, str):
-            raise ValueError("error는 문자열이어야 함")
-        if code is not None and not isinstance(code, str):
-            raise ValueError("code는 문자열이어야 함")
-        return {
-            "commandName": command_name,
-            "requestId": request_id,
-            "status": status,
-            "error": error,
-            "code": code,
-        }
-    except (KeyError, TypeError, ValueError, json.JSONDecodeError) as exc:
-        raise ArrivalCommandError(
-            "INVALID_RESULT", "귀가 결과 메시지를 해석할 수 없습니다."
-        ) from exc
 
 
 def _best_effort_request_id(payload: Union[str, bytes]) -> Optional[str]:
@@ -312,21 +249,12 @@ def _best_effort_request_id(payload: Union[str, bytes]) -> Optional[str]:
 def _uuid_field(body: dict, name: str, request_id: Optional[str] = None) -> str:
     value = body.get(name)
     try:
-        _require_uuid(value, name)
+        require_uuid(value, name)
     except ValueError as exc:
         raise ArrivalCommandError(
             "INVALID_IDENTIFIER", str(exc), request_id
         ) from exc
     return value
-
-
-def _require_uuid(value: str, name: str) -> None:
-    if not isinstance(value, str):
-        raise ValueError(f"{name}는 UUID 문자열이어야 합니다.")
-    try:
-        UUID(value)
-    except (ValueError, AttributeError) as exc:
-        raise ValueError(f"{name}는 UUID 문자열이어야 합니다.") from exc
 
 
 def _positive_int(body: dict, name: str, request_id: str) -> int:
@@ -347,45 +275,22 @@ def _require_home(body: dict, request_id: str) -> None:
         )
 
 
-def _pose(body: dict, prefix: str, request_id: str) -> MapPose:
-    values = []
-    for name in ("x", "y", "yaw"):
-        field_name = (
-            f"{prefix}{name[0].upper()}{name[1:]}" if prefix else name
-        )
-        value = body.get(field_name)
-        if (
-            not isinstance(value, (int, float))
-            or isinstance(value, bool)
-            or not math.isfinite(value)
-        ):
-            raise ArrivalCommandError(
-                "INVALID_POSE",
-                f"{field_name}는 유한한 숫자여야 합니다.",
-                request_id,
-            )
-        values.append(float(value))
-    pose = MapPose(*values)
-    _validate_pose(pose, request_id)
-    return pose
-
-
-def _validate_pose(pose: MapPose, request_id: Optional[str]) -> None:
-    if not all(math.isfinite(value) for value in (pose.x, pose.y, pose.yaw)):
-        raise ArrivalCommandError(
-            "INVALID_POSE", "좌표는 유한한 숫자여야 합니다.", request_id
-        )
-    if not -math.pi <= pose.yaw <= math.pi:
-        raise ArrivalCommandError(
-            "INVALID_POSE", "yaw는 -pi~pi 범위여야 합니다.", request_id
-        )
-
-
-def _require_device_id(device_id: str) -> None:
-    if (
-        not isinstance(device_id, str)
-        or not device_id
-        or len(device_id) > 100
-        or any(ch.isspace() or ord(ch) < 32 for ch in device_id)
-    ):
-        raise ValueError("deviceId 형식이 올바르지 않습니다.")
+__all__ = [
+    "ARRIVAL_COMMANDS",
+    "RESULT_STATUSES",
+    "WELCOME_CANCEL",
+    "WELCOME_START",
+    "ArrivalCommand",
+    "ArrivalCommandError",
+    "MapPose",
+    "WelcomeCancelCommand",
+    "WelcomeStartCommand",
+    "arrival_command_json",
+    "arrival_result_message",
+    "arrival_result_topic",
+    "parse_arrival_command",
+    "parse_internal_arrival_command",
+    "parse_result_envelope",
+    "require_request_id",
+    "result_envelope",
+]

@@ -22,7 +22,6 @@ import yaml
 
 from potner_base.kinematics import DriveConfig
 from potner_docking.approach_controller import DockingGains
-from potner_mission.priority import Thresholds
 from potner_perception.marker_pose import DEFAULT_FOCAL_LENGTH_PX, DEFAULT_MARKER_SIZE
 
 REPO = Path(__file__).resolve().parent.parent
@@ -109,16 +108,19 @@ def test_도킹_게인_기본값이_설정파일과_일치한다():
     assert gains.target_distance == pytest.approx(params["target_distance"])
 
 
-def test_임무_임계값이_설정파일과_일치한다():
-    params = load_params()["mission_manager"]["ros__parameters"]
-    thresholds = Thresholds()
+def test_목적지_좌표는_로봇_설정에_두지_않는다():
+    """좌표의 출처는 서버의 robot_location 하나입니다.
 
-    assert thresholds.battery_percent == pytest.approx(params["battery_percent"])
-    assert thresholds.moisture_percent == pytest.approx(params["moisture_percent"])
-    assert thresholds.light_lux == pytest.approx(params["light_lux"])
-    assert thresholds.temperature_celsius == pytest.approx(
-        params["temperature_celsius"]
-    )
+    로봇에도 좌표를 두면 지도를 다시 그렸을 때 한쪽만 갱신되어 엉뚱한
+    곳으로 갑니다. 예전 station_poses 가 되살아나면 여기서 걸립니다.
+    """
+    params = load_params()["mission_manager"]["ros__parameters"]
+
+    assert "station_poses" not in params
+    for stale in ("battery_percent", "moisture_percent", "light_lux"):
+        assert stale not in params, (
+            f"{stale} 는 서버가 판단합니다. 로봇 임계값이 되살아났습니다."
+        )
 
 
 def test_마커_크기가_설정파일과_일치한다():

@@ -1,7 +1,7 @@
 """docking_server — 스테이션 정밀 도킹 액션 서버.
 
 Nav2 가 스테이션 앞까지 데려다준 뒤 최종 접근을 맡습니다. Nav2 는 지도
-좌표까지는 잘 데려다주지만 도착 오차가 수십 cm 라, 충전 단자를 맞추려면
+좌표까지는 잘 데려다주지만 도착 오차가 수십 cm 라, 급수 노즐과 카메라를 맞추려면
 마커를 보는 전용 제어가 필요합니다.
 
 모터 없이 검증하는 방법:
@@ -9,7 +9,7 @@ Nav2 가 스테이션 앞까지 데려다준 뒤 최종 접근을 맡습니다. 
     터미널 1: ros2 launch potner_bringup robot.launch.py use_lidar:=false
     터미널 2: ros2 topic echo /cmd_vel_docking
     터미널 3: ros2 action send_goal /dock_to_station \\
-                  potner_msgs/action/DockToStation "{marker_id: 1}" --feedback
+                  potner_msgs/action/DockToStation "{marker_id: 2}" --feedback
 
 마커를 좌우로 옮기면 angular.z 부호가 바뀌고, 가까이 대면 linear.x 가
 0 으로 떨어집니다. 모터가 없어도 제어 루프 전체를 확인할 수 있습니다.
