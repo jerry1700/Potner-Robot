@@ -23,7 +23,7 @@ from .client import describe_llm
 from .conversation_backend import create_conversation_backend
 from .dialogue import DialogueService
 from .events import EventStore
-from .status import MetricLevel, PlantStatus
+from .sensor_provider import FileSensorSource, SensorDataProvider
 
 # .../src/potner_llm/potner_llm/cli.py 기준
 PACKAGE_DIR = Path(__file__).resolve().parents[1]  # .../src/potner_llm
@@ -48,19 +48,11 @@ def _load_config(path: Path) -> dict[str, Any]:
     return yaml.safe_load(path.read_text(encoding="utf-8")) or {}
 
 
-def _demo_status() -> PlantStatus:
-    """실제 센서 노드(potner_base 등) 연결 전까지 쓰는 채팅 테스트용 고정 상태."""
-    ok = MetricLevel(name="ok", value=25.0, level="normal", label_ko="적정")
-    dry = MetricLevel(name="soil", value=18.0, level="low", label_ko="건조")
-    return PlantStatus(
-        timestamp="2026-07-28T10:00:00",
-        soil=dry,
-        temperature=ok,
-        humidity=ok,
-        light=ok,
-        summary_ko="토양이 건조해서 물이 필요해요",
-        needs_attention=True,
-    )
+# 센서 소스: data/sensors.json을 읽는다 — 값을 바꿔가며 응답 변화를 확인할
+# 수 있다. 파일이 없거나 깨져도 provider가 흡수(미측정 라벨)한다.
+_sensor_provider = SensorDataProvider(
+    FileSensorSource(PACKAGE_DIR / "data" / "sensors.json")
+)
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -94,7 +86,7 @@ def main(argv: list[str] | None = None) -> int:
 
     service = DialogueService(
         config,
-        get_status=_demo_status,
+        get_status=_sensor_provider.status,
         event_store=store,
         conversation_backend=backend,
         session_id=session_id,
