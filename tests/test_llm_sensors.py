@@ -21,7 +21,7 @@ from potner_llm.sensor_provider import (
     FileSensorSource,
     HttpSensorSource,
     SensorDataProvider,
-    attention_messages,
+    SpringSensorSource,
     build_plant_status,
     classify_metric,
     create_sensor_provider,
@@ -176,6 +176,173 @@ def test_http_source_fetches_json(monkeypatch):
     assert snapshot.light == 900.0
     assert captured["url"] == "https://example.test/sensors"
     assert captured["timeout"] == 3.0
+
+
+# --- SpringSensorSource: 서버 응답(배열) → SensorSnapshot(평평) 재구성 -----------------
+
+
+def _fake_spring_response(monkeypatch, body, *, capture=None):
+    class _FakeResponse:
+        def read(self):
+            return json.dumps(body).encode("utf-8")
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc_info):
+            return False
+
+    def fake_urlopen(req, timeout=5.0):
+        if capture is not None:
+            capture["url"] = req.full_url
+            capture["headers"] = dict(req.header_items())
+            capture["timeout"] = timeout
+        return _FakeResponse()
+
+    monkeypatch.setattr(sensor_provider_module.urllib.request, "urlopen", fake_urlopen)
+
+
+def test_spring_source_maps_sensor_types_to_snapshot(monkeypatch):
+    _fake_spring_response(
+        monkeypatch,
+        {
+            "plantId": "p1",
+            "sensors": [
+                {"sensorType": "TEMPERATURE", "value": 23.5, "status": "NORMAL"},
+                {"sensorType": "HUMIDITY", "value": 55.0, "status": "NORMAL"},
+                {"sensorType": "SOIL_MOISTURE", "value": 40.0, "status": "LOW"},
+                {"sensorType": "ILLUMINANCE", "value": 800.0, "status": "NOT_APPLICABLE"},
+            ],
+        },
+    )
+    source = SpringSensorSource("https://example.test/sensors/current", token_provider=lambda: "tok")
+    snapshot = source.read()
+
+    assert snapshot.temp == 23.5
+    assert snapshot.humidity == 55.0
+    assert snapshot.soil == 40.0
+    assert snapshot.light == 800.0
+
+
+def test_spring_source_no_data_becomes_none(monkeypatch):
+    """NO_DATA는 값이 있어도 싣지 않는다 — 아직 안 잰 것과 0을 구분해야 한다."""
+    _fake_spring_response(
+        monkeypatch,
+        {"sensors": [{"sensorType": "TEMPERATURE", "value": 0.0, "status": "NO_DATA"}]},
+    )
+    snapshot = SpringSensorSource("https://example.test", token_provider=lambda: "tok").read()
+    assert snapshot.temp is None
+
+
+def test_spring_source_stale_value_is_still_used(monkeypatch):
+    """STALE도 마지막 실측값은 유효하다 — 로봇 쪽 절대 임계값 판정이 다시 하므로 중복 무방."""
+    _fake_spring_response(
+        monkeypatch,
+        {"sensors": [{"sensorType": "HUMIDITY", "value": 61.0, "status": "STALE"}]},
+    )
+    snapshot = SpringSensorSource("https://example.test", token_provider=lambda: "tok").read()
+    assert snapshot.humidity == 61.0
+
+
+def test_spring_source_ignores_unknown_sensor_types(monkeypatch):
+    """서버가 나중에 센서 종류를 늘려도 모르는 타입은 무시하고 나머지는 정상 처리."""
+    _fake_spring_response(
+        monkeypatch,
+        {
+            "sensors": [
+                {"sensorType": "TEMPERATURE", "value": 22.0, "status": "NORMAL"},
+                {"sensorType": "CO2_PPM", "value": 800.0, "status": "NORMAL"},
+            ]
+        },
+    )
+    snapshot = SpringSensorSource("https://example.test", token_provider=lambda: "tok").read()
+    assert snapshot.temp == 22.0
+
+
+def test_spring_source_authorization_header_gets_bearer_prefix(monkeypatch):
+    captured = {}
+    _fake_spring_response(monkeypatch, {"sensors": []}, capture=captured)
+
+    SpringSensorSource(
+        "https://example.test/sensors/current",
+        token_provider=lambda: "secret-token",
+        token_header="Authorization",
+    ).read()
+
+    assert captured["headers"]["Authorization"] == "Bearer secret-token"
+    assert captured["url"] == "https://example.test/sensors/current"
+
+
+def test_spring_source_device_token_header_has_no_bearer_prefix(monkeypatch):
+    """장치 토큰 방식(X-Device-Token)은 라즈베리 사진 업로드와 같은 관례 — Bearer를 안 붙인다."""
+    captured = {}
+    _fake_spring_response(monkeypatch, {"sensors": []}, capture=captured)
+
+    SpringSensorSource(
+        "https://example.test/sensors/current",
+        token_provider=lambda: "device-secret",
+        token_header="X-Device-Token",
+    ).read()
+
+    assert captured["headers"]["X-device-token"] == "device-secret"
+
+
+def test_spring_source_failure_is_absorbed_by_provider(monkeypatch):
+    def fake_urlopen(req, timeout=5.0):
+        raise urllib.error.URLError("no route to host")
+
+    monkeypatch.setattr(sensor_provider_module.urllib.request, "urlopen", fake_urlopen)
+    provider = SensorDataProvider(
+        SpringSensorSource("https://example.test", token_provider=lambda: "tok")
+    )
+    assert provider.snapshot() is None
+    assert provider.status().temperature.level == "unknown"
+
+
+def test_create_sensor_provider_spring_kind(monkeypatch):
+    monkeypatch.setenv("POTNER_SENSOR_TOKEN", "abc123")
+    captured = {}
+    _fake_spring_response(
+        monkeypatch,
+        {"sensors": [{"sensorType": "TEMPERATURE", "value": 19.0, "status": "NORMAL"}]},
+        capture=captured,
+    )
+
+    provider = create_sensor_provider(
+        {
+            "sensor": {
+                "source": "spring",
+                "url": "https://example.test/sensors/current",
+                "token_env": "POTNER_SENSOR_TOKEN",
+                "token_header": "X-Device-Token",
+            }
+        }
+    )
+    assert provider.snapshot().temp == 19.0
+    assert captured["headers"]["X-device-token"] == "abc123"
+
+
+def test_create_sensor_provider_spring_requires_url_and_token_env():
+    with pytest.raises(ValueError):
+        create_sensor_provider({"sensor": {"source": "spring"}})
+    with pytest.raises(ValueError):
+        create_sensor_provider({"sensor": {"source": "spring", "url": "https://example.test"}})
+
+
+def test_create_sensor_provider_spring_missing_env_value_raises(monkeypatch):
+    """토큰 env가 선언은 됐지만 실제로 비어 있으면 조용히 넘어가지 않는다."""
+    monkeypatch.delenv("POTNER_SENSOR_TOKEN_MISSING", raising=False)
+    provider = create_sensor_provider(
+        {
+            "sensor": {
+                "source": "spring",
+                "url": "https://example.test",
+                "token_env": "POTNER_SENSOR_TOKEN_MISSING",
+            }
+        }
+    )
+    # provider 생성 자체는 성공 — 호출 시점(read)에 토큰이 비어 있으면 실패한다.
+    assert provider.snapshot() is None  # RuntimeError가 provider 안에서 흡수됨
 
 
 # --- provider: 실패 흡수 + 최신값 반영 ---------------------------------------------

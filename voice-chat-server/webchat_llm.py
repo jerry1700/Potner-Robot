@@ -84,11 +84,14 @@ class WebChatLLM:
             except Exception as exc:  # noqa: BLE001 — 어떤 실패든 대화는 계속돼야 한다
                 logger.error("웹 챗 LLM 호출 실패: %s", exc)
             reply = "".join(parts).strip()
-            if not reply:
-                yield MSG_UNREACHABLE if not self.healthy() else MSG_LLM_ERROR
-                return
-            session.history.append({"role": "user", "content": message})
-            session.history.append({"role": "assistant", "content": reply})
+            if reply:
+                session.history.append({"role": "user", "content": message})
+                session.history.append({"role": "assistant", "content": reply})
+        if not reply:
+            # 폴백 판별의 healthy()는 죽은 서버에 최대 5초가 걸린다 — lock
+            # 밖에서 해야 같은 세션의 다음 턴(모니터 타이핑 등)이 헬스체크
+            # 동안 같이 막히지 않는다.
+            yield MSG_UNREACHABLE if not self.healthy() else MSG_LLM_ERROR
 
     def end_session(self, session_id: str) -> bool:
         with self._lock:
@@ -127,45 +130,52 @@ class WebChatLLM:
             stream=True,
             timeout=(CONNECT_TIMEOUT, READ_TIMEOUT),
         )
-        if resp.status_code != 200:
-            # 스트림 열기 전 실패는 SSE가 아니라 JSON 에러 바디로 온다.
-            try:
-                detail = resp.json().get("message", "")
-            except ValueError:
-                detail = resp.text[:200]
-            raise RuntimeError(f"/api/chat {resp.status_code}: {detail}")
-
-        event = ""
-        for line in resp.iter_lines(decode_unicode=True):
-            if line is None:
-                continue
-            if line == "":  # 프레임 경계
-                event = ""
-                continue
-            if line.startswith("event:"):
-                event = line[len("event:"):].strip()
-            elif line.startswith("data:"):
+        try:
+            if resp.status_code != 200:
+                # 스트림 열기 전 실패는 SSE가 아니라 JSON 에러 바디로 온다.
                 try:
-                    data = json.loads(line[len("data:"):].strip() or "{}")
+                    detail = resp.json().get("message", "")
                 except ValueError:
+                    detail = resp.text[:200]
+                raise RuntimeError(f"/api/chat {resp.status_code}: {detail}")
+
+            event = ""
+            for line in resp.iter_lines(decode_unicode=True):
+                if line is None:
                     continue
-                if event == "text_delta":
-                    text = data.get("text", "")
-                    if text:
-                        yield text
-                elif event == "error":
-                    raise RuntimeError(data.get("message", "SSE error"))
-                elif event == "message_complete":
-                    return
+                if line == "":  # 프레임 경계
+                    event = ""
+                    continue
+                if line.startswith("event:"):
+                    event = line[len("event:"):].strip()
+                elif line.startswith("data:"):
+                    try:
+                        data = json.loads(line[len("data:"):].strip() or "{}")
+                    except ValueError:
+                        continue
+                    if event == "text_delta":
+                        text = data.get("text", "")
+                        if text:
+                            yield text
+                    elif event == "error":
+                        raise RuntimeError(data.get("message", "SSE error"))
+                    elif event == "message_complete":
+                        return
+        finally:
+            # stream=True 응답은 명시적으로 닫아야 커넥션이 풀로 반환된다.
+            # message_complete 조기 반환·에러·정상 소진 어느 경로든 여기로 온다.
+            resp.close()
 
     def _maybe_summarize(self, session: _Session) -> None:
-        """히스토리가 20턴을 넘으면 오래된 턴을 summary로 접는다. 실패해도 무시."""
+        """히스토리가 20턴을 넘으면 오래된 턴을 summary로 접는다.
+
+        요약이 **성공했을 때만** 히스토리를 자른다. 실패했는데 잘라버리면
+        옛 턴이 요약도 없이 유실된다. 자르지 않고 두는 것은 무해하다 —
+        웹 챗 서버가 어차피 최근 20턴만 쓰고, 다음 턴에 다시 시도한다.
+        """
         if len(session.history) <= MAX_HISTORY_MESSAGES:
             return
-        old, session.history = (
-            session.history[:-MAX_HISTORY_MESSAGES],
-            session.history[-MAX_HISTORY_MESSAGES:],
-        )
+        old = session.history[:-MAX_HISTORY_MESSAGES]
         try:
             resp = requests.post(
                 f"{self.base_url}/api/summarize",
@@ -173,7 +183,11 @@ class WebChatLLM:
                 timeout=(CONNECT_TIMEOUT, READ_TIMEOUT),
             )
             summary = resp.json().get("summary", "")
-            if summary:
-                session.summary = summary
         except Exception as exc:  # noqa: BLE001
-            logger.warning("요약 실패 (요약 없이 계속): %s", exc)
+            logger.warning("요약 실패 (자르지 않고 다음 턴에 재시도): %s", exc)
+            return
+        if not summary:
+            logger.warning("요약이 비어 있음 — 자르지 않고 다음 턴에 재시도")
+            return
+        session.summary = summary
+        session.history = session.history[-MAX_HISTORY_MESSAGES:]

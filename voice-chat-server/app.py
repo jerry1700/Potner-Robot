@@ -29,7 +29,6 @@ import json
 import logging
 import os
 import random
-import re
 import sys
 import threading
 import time
@@ -51,10 +50,20 @@ from potner_llm.client import describe_llm  # noqa: E402
 from potner_llm.conversation_backend import create_conversation_backend  # noqa: E402
 from potner_llm.dialogue import DialogueService  # noqa: E402
 from potner_llm.events import EventStore  # noqa: E402
-from potner_llm.sensor_provider import FileSensorSource, SensorDataProvider  # noqa: E402
+from potner_llm.sensor_provider import (  # noqa: E402
+    FileSensorSource,
+    SensorDataProvider,
+    create_sensor_provider,
+)
 
 from audio_sink import build_audio_sink  # noqa: E402
 from local_stt import LocalSttClient  # noqa: E402
+from sentences import (  # noqa: E402
+    FIRST_CHUNK_CHARS,
+    cut_first_chunk,
+    pop_sentences,
+    strip_markdown,
+)
 from speech import SpeechApiError, SpeechClient, audio_mime  # noqa: E402
 from webchat_llm import WebChatLLM  # noqa: E402
 
@@ -96,10 +105,15 @@ def _load_env_file(path: Path) -> None:
             os.environ[key] = value
 
 
-# 센서 소스: src/potner_llm/data/sensors.json을 읽는다. 실기에서는 MQTT/ROS
-# 노드가 이 파일을 갱신하거나 CallbackSensorSource로 대체한다. 파일이
-# 없거나 깨져도 provider가 흡수(미측정 라벨)하므로 서버는 죽지 않는다.
-_sensor_provider = SensorDataProvider(
+def _load_llm_config() -> dict[str, Any]:
+    config_path = LLM_PACKAGE_DIR / "config" / "llm.yaml"
+    return yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}
+
+
+# 센서 소스: llm.yaml의 sensor: 섹션으로 고른다(docs/LLM_SENSOR_INTEGRATION_PLAN.md).
+# 섹션이 없거나 source: none이면 예전처럼 src/potner_llm/data/sensors.json 파일
+# 폴백 — 파일이 없거나 깨져도 provider가 흡수(미측정 라벨)하므로 서버는 죽지 않는다.
+_sensor_provider = create_sensor_provider(_load_llm_config()) or SensorDataProvider(
     FileSensorSource(REPO_ROOT / "src" / "potner_llm" / "data" / "sensors.json")
 )
 
@@ -323,7 +337,7 @@ async def voice_chat(
     turn = TurnAudio(uuid.uuid4().hex)
     audio_b64: Optional[str] = None
     try:
-        chunk = state.speech.synthesize(_tts_text(reply_text))
+        chunk = state.speech.synthesize(strip_markdown(reply_text))
     except SpeechApiError as exc:
         logger.error("TTS 실패 (텍스트만 반환): %s", exc)
     else:
@@ -466,7 +480,7 @@ async def voice_chat_stream(
         pending: deque = deque()
 
         def submit_tts(sentence: str) -> None:
-            spoken = _tts_text(sentence).strip()
+            spoken = strip_markdown(sentence).strip()
             if spoken:
                 pending.append(_TTS_POOL.submit(_tts_job, spoken))
 
@@ -482,13 +496,13 @@ async def voice_chat_stream(
                 first_delta_time = time.monotonic()
             parts.append(delta)
             yield _sse("text_delta", {"text": delta})
-            sentences, tail = _pop_sentences(tail + delta)
+            sentences, tail = pop_sentences(tail + delta)
             for sentence in sentences:
                 submit_tts(sentence)
                 first_sent = True
             # 첫 조각 조기 절단 — 문장이 아직 안 끝났어도 소리부터 시작한다.
-            if not first_sent and len(tail) >= _FIRST_CHUNK_CHARS:
-                head, tail = _cut_first_chunk(tail)
+            if not first_sent and len(tail) >= FIRST_CHUNK_CHARS:
+                head, tail = cut_first_chunk(tail)
                 if head:
                     submit_tts(head)
                     first_sent = True
@@ -565,38 +579,13 @@ def _error(status: int, message: str) -> JSONResponse:
     return JSONResponse({"success": False, "message": message}, status_code=status)
 
 
-_MARKDOWN_CHARS = re.compile(r"[*_`#>]+|\[([^\]]*)\]\([^)]*\)")
-
-
-def _tts_text(text: str) -> str:
-    """웹 챗(초록이) 응답은 마크다운일 수 있어, TTS가 기호를 읽지 않게 벗긴다."""
-    return _MARKDOWN_CHARS.sub(lambda m: m.group(1) or "", text)
-
-
 # ------------------------------------------------- 문장 파이프라이닝 (스트리밍 TTS)
+# 문장 자르기 규칙(pop_sentences/cut_first_chunk/strip_markdown)은 sentences.py에
+# 있다 — 이 파일은 import 시점 부작용(API 키·필러 합성 스레드) 때문에 테스트가
+# import할 수 없어서, 순수 로직은 저쪽에 두고 여기서는 배선만 한다.
 
 # TTS 동시 2개 — GMS 부하와 순서 지연의 균형점. 문장들이 순차 완성되므로 충분하다.
 _TTS_POOL = ThreadPoolExecutor(max_workers=2, thread_name_prefix="tts")
-
-_SENTENCE_END = re.compile(r"[.!?…。]+[\s\"'）)】\]]*|\n+")
-
-
-def _pop_sentences(buffer: str) -> tuple[list[str], str]:
-    """버퍼에서 완성된 문장들을 떼어내고 나머지를 돌려준다."""
-    sentences: list[str] = []
-    start = 0
-    for match in _SENTENCE_END.finditer(buffer):
-        sentence = buffer[start : match.end()].strip()
-        if sentence:
-            sentences.append(sentence)
-        start = match.end()
-    return sentences, buffer[start:]
-
-
-# 첫 소리를 빨리 내기 위한 첫 조각 조기 절단 기준.
-# 초록이는 구두점 없이 긴 문장을 쓰는 일이 많아, 첫 조각만은 문장 완성을 기다리지
-# 않고 이 길이가 모이면 어절 경계에서 잘라 TTS를 시작한다.
-_FIRST_CHUNK_CHARS = 20
 
 # 필러(맞장구) — LLM 첫 토큰 지연(GMS 경유 1.4~4.7초로 변동)이 커서, STT 직후
 # 미리 합성해둔 짧은 음성을 즉시 재생해 "5초 내 첫 소리"를 항상 보장한다.
@@ -634,19 +623,6 @@ def _warm_local_stt() -> None:
 
 threading.Thread(target=_warm_fillers, daemon=True).start()
 threading.Thread(target=_warm_local_stt, daemon=True).start()
-
-
-def _cut_first_chunk(buffer: str) -> tuple[str, str]:
-    """쉼표 > 공백 순으로 자연스러운 절단점을 찾아 (첫 조각, 나머지)를 돌려준다."""
-    for separator in (", ", ","):
-        idx = buffer.rfind(separator, 10)
-        if idx > 10:
-            cut = idx + len(separator)
-            return buffer[:cut].strip(), buffer[cut:]
-    idx = buffer.rfind(" ", 10)
-    if idx > 10:
-        return buffer[:idx].strip(), buffer[idx + 1 :]
-    return buffer.strip(), ""
 
 
 def _tts_job(text: str) -> Optional[bytes]:

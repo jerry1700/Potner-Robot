@@ -7,7 +7,6 @@ from __future__ import annotations
 
 import logging
 
-import pytest
 
 from potner_llm.dialogue import DialogueService
 from potner_llm.events import EventStore
