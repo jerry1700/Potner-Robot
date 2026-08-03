@@ -376,7 +376,7 @@ class MqttBridge(Node):
 
     # --- 발행 ---
 
-    def _publish(self, topic: str, payload: str, label: str) -> bool:
+    def _publish(self, topic, payload, label):
         """QoS 1 로 보냅니다.
 
         QoS 0 은 브로커까지 도달을 보장하지 않습니다. 무선 구간이 있고
