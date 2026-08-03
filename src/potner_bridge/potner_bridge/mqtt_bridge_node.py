@@ -107,6 +107,9 @@ class MqttBridge(Node):
         self._battery = None
         self._state = None
         self._state_changed_at = None
+        # 마지막으로 로그에 남긴 표정. 반복 수신과 실제 변화를 구분하는 데만
+        # 씁니다 — 발행(_expression_pub)은 이것과 무관하게 매번 합니다.
+        self._last_expression_log = None
 
         for topic, sensor_type in SENSOR_SOURCES:
             self.create_subscription(
@@ -294,13 +297,22 @@ class MqttBridge(Node):
         self._expression_pub.publish(String(data=expression))
         self._reason_pub.publish(String(data=reason or ""))
 
-        # 같은 값이 30초마다 반복되므로 바뀔 때만 알리면 조용합니다. 그런데
-        # 그러면 "표정이 계속 NEUTRAL 일 때" 도착하고 있는지 알 수 없어서,
-        # 도착 자체는 간격을 두고 남깁니다.
-        self.get_logger().info(
-            f"표정 수신: {expression} (사유 {reason or '없음'})",
-            throttle_duration_sec=120.0,
-        )
+        # ★ throttle_duration_sec 은 "이 로그 호출이 몇 초에 한 번만 찍히는가"
+        # 를 정할 뿐, 그 사이에 값이 바뀌었는지는 안 봅니다. 예전엔 이 로그
+        # 전체에 120초 throttle 을 걸어서, 실제로 VERY_HAPPY 가 왔다 가도
+        # 그 사이에 있으면 로그에 안 남고 조용히 다음 SAD 로 넘어갔습니다.
+        # 그래서 변화는 즉시 남기고, 같은 값의 반복만 뜸하게 남깁니다 —
+        # "표정이 NEUTRAL 로 고정된 채 계속 도착 중"이라는 사실도 여전히
+        # 알 수 있어야 하기 때문입니다.
+        current = (expression, reason)
+        if current != self._last_expression_log:
+            self._last_expression_log = current
+            self.get_logger().info(f"표정 수신: {expression} (사유 {reason or '없음'})")
+        else:
+            self.get_logger().info(
+                f"표정 반복 수신: {expression} (사유 {reason or '없음'})",
+                throttle_duration_sec=120.0,
+            )
 
     def _on_command_result(self, msg: String):
         """mission_manager 결과를 서버가 구독하는 MQTT 토픽으로 중계합니다."""
