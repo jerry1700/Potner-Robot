@@ -35,10 +35,8 @@
    ⚠️ 401 응답만으로는 판별 불가(Security 필터가 라우팅보다 먼저 돎) —
    소스 트리로 확인할 것. 열렸으면 전환 절차 4단계 실행 후
    `docs/LLM_CAPABILITIES.md`의 "데이터 현황" 경고 제거.
-3. **`data/` 커밋 오염 제거** — `5d3fb2f`에 런타임 산출물이 딸려
-   들어갔다 (data/camera/frame_*.png, readings.csv, water_history.json,
-   events.jsonl). `git rm --cached -r data/` + `.gitignore`에 `data/`
-   추가 권장. src/potner_llm/data/는 이미 gitignore돼 있음.
+3. ~~`data/` 커밋 오염 제거~~ — **완료** (`67f10af`: 추적 해제 +
+   `.gitignore`에 `/data/` 추가. 히스토리에는 남아 있으나 무해).
 4. **이벤트 기록 주체 부재** — `get_recent_events` 툴은 있는데 로봇
    트리에서 EventStore에 기록하는 코드가 없어 항상 빈 목록이다.
    급수 결과·도착 이벤트를 어디서 적재할지 결정 필요 (MQTT 브리지에서?
