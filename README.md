@@ -64,8 +64,12 @@ legacy/                   ROS 2 전환 이전 코드 (참고용, 실행되지 �
 | 문서 | 내용 |
 |---|---|
 | [`docs/CODE_STYLE.md`](docs/CODE_STYLE.md) | 팀 코드 스타일 규칙 |
-| [`docs/DEVICE-MQTT.md`](docs/DEVICE-MQTT.md) | **서버 연동 명세 (서버 팀 관리, 최우선 기준)** |
+| [`docs/DEVICE-JETSON.md`](docs/DEVICE-JETSON.md) | **젯슨이 할 일만 추린 서버 연동 명세 (서버 팀 관리, 가장 실전적) — 먼저 읽을 것** |
+| [`docs/DEVICE-MQTT.md`](docs/DEVICE-MQTT.md) | 장치 공통 계약과 설계 근거 (서버 팀 관리) |
+| [`docs/DEVICE-RASPBERRY.md`](docs/DEVICE-RASPBERRY.md) | 스테이션(라즈베리) 쪽 명세 — 참고용 |
 | [`docs/MQTT_CONTRACT.md`](docs/MQTT_CONTRACT.md) | MQTT 로봇 쪽 구현 노트 |
+| [`docs/NAVIGATE_TEST.md`](docs/NAVIGATE_TEST.md) | `command/navigate` 확인 절차 |
+| [`docs/ARRIVAL_TEST.md`](docs/ARRIVAL_TEST.md) | 귀가 마중 확인 절차 |
 | [`docs/JETSON_DISPLAY.md`](docs/JETSON_DISPLAY.md) | 젯슨 화면 세팅 (표정 표시 전 필독) |
 | [`docs/WIRING.md`](docs/WIRING.md) | 장치별 배선·핀·역할 |
 | [`docs/HANDOVER.md`](docs/HANDOVER.md) | 인수인계 — 진행 상황과 다음 작업 |
