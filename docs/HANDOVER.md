@@ -318,9 +318,11 @@ curl -s -H "Authorization: Bearer $TOKEN" \
    이 남습니다. 실측해서 자주 넘기면 이동만 늘려 달라고 요청하세요.
    (`command/navigate` 수신과 `result/navigate` 회신은 구현 완료 —
    [`NAVIGATE_TEST.md`](NAVIGATE_TEST.md) 참고)
-2. **`command/speech`** — 서버의 LLM(대화 담당 AI)이 만든 문장을 로봇에게
-   전달할 경로가 아직 명세에 없습니다. 지금은 로봇이 정해진 인사말만
-   말합니다.
+2. **`command/speech`** — 서버의 LLM이 만든 문장을 로봇에게 전달할 경로가
+   아직 명세에 없습니다. **다만 음성 대화는 이걸 기다리지 않고 닫혔습니다** —
+   음성 서버를 로봇에서 직접 띄워 폰 브라우저로 대화하고 로봇 스피커로
+   답합니다(`AUDIO_SINK=speaker`, [`../voice-chat-server/README.md`](../voice-chat-server/README.md)).
+   서버가 대화를 주도해야 할 일이 생기면 그때 요청하면 됩니다.
 3. **조도 센서 위치 정정 전달** — `DEVICE-JETSON.md`에 조도 센서가 아직
    스테이션(라즈베리)에 있다고 적혀 있고, 젯슨으로 옮기는 걸 검토 항목으로
    남겨뒀습니다. **실제로는 처음부터 BH1750이 젯슨에 있고, 이미

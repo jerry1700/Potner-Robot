@@ -20,12 +20,25 @@ from pathlib import Path
 import pytest
 import yaml
 
+from potner_base.audio_queue import MAX_PENDING
 from potner_base.kinematics import DriveConfig
+from potner_base.speech import DEFAULT_AUDIO_COMMAND, DEFAULT_COMMAND
 from potner_docking.approach_controller import DockingGains
 from potner_perception.marker_pose import DEFAULT_FOCAL_LENGTH_PX, DEFAULT_MARKER_SIZE
 
 REPO = Path(__file__).resolve().parent.parent
 PARAMS = REPO / "src" / "potner_bringup" / "config" / "potner_params.yaml"
+
+# 노드가 declare_parameter 기본값으로 쓰는 상수들. 노드 파일은 rclpy 를
+# import 하므로 CI 에서 불러올 수 없어서, 상수가 사는 순수 모듈에서 직접
+# 가져와 eval 이름공간에 넣습니다.
+NODE_CONSTANTS = {
+    "DEFAULT_MARKER_SIZE": DEFAULT_MARKER_SIZE,
+    "DEFAULT_FOCAL_LENGTH_PX": DEFAULT_FOCAL_LENGTH_PX,
+    "DEFAULT_COMMAND": DEFAULT_COMMAND,
+    "DEFAULT_AUDIO_COMMAND": DEFAULT_AUDIO_COMMAND,
+    "MAX_PENDING": MAX_PENDING,
+}
 
 
 def load_params():
@@ -39,17 +52,14 @@ def node_defaults(package, module, node_name):
     source = path.read_text(encoding="utf-8")
 
     defaults = {}
-    pattern = r'declare_parameter\(\s*"([^"]+)",\s*([^,)]+?)\s*\)'
+    # 기본값에 한 겹의 중첩 괄호까지 허용합니다 — list(DEFAULT_COMMAND) 처럼
+    # 상수를 감싼 형태가 흔합니다. 이걸 못 읽으면 그 파라미터는 조용히
+    # 대조에서 빠지고, 어긋나도 아무 증상이 없습니다.
+    pattern = r'declare_parameter\(\s*"([^"]+)",\s*((?:[^,()]|\([^()]*\))+?)\s*\)'
     for name, literal in re.findall(pattern, source):
         try:
-            defaults[name] = eval(
-                literal,
-                {
-                    "DEFAULT_MARKER_SIZE": DEFAULT_MARKER_SIZE,
-                    "DEFAULT_FOCAL_LENGTH_PX": DEFAULT_FOCAL_LENGTH_PX,
-                },
-            )
-        except (SyntaxError, NameError, ValueError):
+            defaults[name] = eval(literal, dict(NODE_CONSTANTS))
+        except (SyntaxError, NameError, ValueError, TypeError):
             continue  # 표현식으로 된 기본값은 대조 대상이 아닙니다
     return defaults
 

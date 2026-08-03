@@ -3,7 +3,17 @@
 휴대폰 브라우저(같은 Wi-Fi)에서 로봇 IP:PORT로 접속해 음성으로 대화한다.
 
     녹음 업로드 → STT(whisper-1) → potner_llm DialogueService(tool use 포함)
-    → TTS(gpt-4o-mini-tts) → mp3 반환
+    → TTS(gpt-4o-mini-tts) → 오디오 반환
+
+소리가 나는 곳은 AUDIO_SINK로 고른다 (audio_sink.py 참고).
+
+    browser  폰이 재생 (기본. 개발 PC에서 쓰는 값)
+    speaker  로봇 스피커가 재생 — 조각을 스풀에 쓰고 ROS tts/play_audio로
+             경로를 발행하면 speaker_node가 재생한다. 순서·중복·선점 제어는
+             그쪽 PlaybackQueue가 한다
+    both     둘 다
+
+speaker 모드에서는 TTS를 wav로 받는다 — 로봇의 aplay가 mp3를 못 읽는다.
 
 실행 (레포 루트에서):
     python -m uvicorn app:app --app-dir voice-chat-server --host 0.0.0.0 --port 8080
@@ -17,11 +27,13 @@ import asyncio
 import base64
 import json
 import logging
+import os
 import random
 import re
 import sys
 import threading
 import time
+import uuid
 from collections import deque
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -41,8 +53,9 @@ from potner_llm.dialogue import DialogueService  # noqa: E402
 from potner_llm.events import EventStore  # noqa: E402
 from potner_llm.sensor_provider import FileSensorSource, SensorDataProvider  # noqa: E402
 
+from audio_sink import build_audio_sink  # noqa: E402
 from local_stt import LocalSttClient  # noqa: E402
-from speech import SpeechApiError, SpeechClient  # noqa: E402
+from speech import SpeechApiError, SpeechClient, audio_mime  # noqa: E402
 from webchat_llm import WebChatLLM  # noqa: E402
 
 logger = logging.getLogger("voice_chat")
@@ -129,8 +142,6 @@ class VoiceChatApp:
     """세션별 DialogueService와 SpeechClient를 관리한다."""
 
     def __init__(self) -> None:
-        import os
-
         _load_env_file(REPO_ROOT / ".env")
         config_path = LLM_PACKAGE_DIR / "config" / "llm.yaml"
         self.config: dict[str, Any] = (
@@ -142,7 +153,13 @@ class VoiceChatApp:
         ).strip()
         if not api_key:
             raise RuntimeError(".env에 GMS_API_KEY(또는 OPENAI_API_KEY)가 필요합니다")
-        self.speech = SpeechClient(api_key=api_key)
+
+        # 소리가 나갈 곳. 싱크가 재생 수단을 알기 때문에 필요한 오디오
+        # 포맷도 싱크가 정한다 (로봇의 aplay는 mp3를 못 읽는다).
+        self.sink = build_audio_sink()
+        self.audio_format = self.sink.audio_format
+        self.audio_mime = audio_mime(self.audio_format)
+        self.speech = SpeechClient(api_key=api_key, audio_format=self.audio_format)
 
         self._event_store = EventStore(LLM_PACKAGE_DIR / "data" / "events.jsonl")
         self._backend = create_conversation_backend(
@@ -257,7 +274,13 @@ async def events(request: Request) -> StreamingResponse:
 
 @app.get("/api/health")
 def health() -> dict[str, Any]:
-    return {"status": "ok", "llm": _describe_backend()}
+    return {
+        "status": "ok",
+        "llm": _describe_backend(),
+        "audio_sink": repr(state.sink),
+        "audio_format": state.audio_format,
+        "plays_on_browser": state.sink.plays_on_browser,
+    }
 
 
 @app.post("/api/voice-chat")
@@ -265,7 +288,11 @@ async def voice_chat(
     audio: UploadFile = File(...),
     session_id: str = Form("voice"),
 ) -> JSONResponse:
-    """음성 파일 → (STT → LLM → TTS) → 응답 텍스트 + mp3(base64)."""
+    """음성 파일 → (STT → LLM → TTS) → 응답 텍스트 + 오디오(base64).
+
+    통짜 폴백 경로다. 스트리밍(/api/voice-chat-stream)과 마찬가지로 오디오는
+    AUDIO_SINK 설정에 따라 로봇 스피커로도 나간다.
+    """
     started = time.monotonic()
 
     blob = await audio.read()
@@ -291,14 +318,18 @@ async def voice_chat(
     # b. LLM — 어느 백엔드든 예외 없이 항상 텍스트를 돌려준다.
     reply_text = state.reply(session_id, user_text)
 
-    # c. TTS — 실패해도 텍스트는 돌려준다 (화면 표시는 가능하게)
+    # c. TTS — 실패해도 텍스트는 돌려준다 (화면 표시는 가능하게).
+    #    통짜라 조각이 하나뿐이므로 그게 곧 마지막 조각이다.
+    turn = TurnAudio(uuid.uuid4().hex)
     audio_b64: Optional[str] = None
     try:
-        audio_b64 = base64.b64encode(
-            state.speech.synthesize(_tts_text(reply_text))
-        ).decode("ascii")
+        chunk = state.speech.synthesize(_tts_text(reply_text))
     except SpeechApiError as exc:
         logger.error("TTS 실패 (텍스트만 반환): %s", exc)
+    else:
+        turn.send(chunk, final=True)
+        if state.sink.plays_on_browser:
+            audio_b64 = base64.b64encode(chunk).decode("ascii")
 
     elapsed_ms = round((time.monotonic() - started) * 1000)
     logger.info("voice-chat 완료 session=%s %dms", session_id, elapsed_ms)
@@ -322,7 +353,7 @@ async def voice_chat(
             "user_text": user_text,
             "reply_text": reply_text,
             "audio_b64": audio_b64,
-            "audio_mime": "audio/mpeg" if audio_b64 else None,
+            "audio_mime": state.audio_mime if audio_b64 else None,
             "elapsed_ms": elapsed_ms,
         }
     )
@@ -406,6 +437,10 @@ async def voice_chat_stream(
         # 동기 제너레이터 → Starlette가 스레드풀에서 돌리므로 이벤트 루프를 막지 않는다.
         started = time.monotonic()
 
+        # 턴 아이디 — speaker_node가 이걸로 조각을 묶고, 새 턴이 오면 이전
+        # 답변을 끊는다(barge-in). 조각 발행 전에 정해야 한다.
+        turn = TurnAudio(uuid.uuid4().hex)
+
         # a. STT
         try:
             user_text = state.transcribe(
@@ -421,9 +456,10 @@ async def voice_chat_stream(
         yield _sse("user_text", {"text": user_text})
 
         # 필러 즉시 재생 — LLM이 생각하는 동안 침묵을 없앤다.
+        # 첫 조각으로 내보내므로 여기서 이전 턴의 재생이 끊긴다.
         filler = _pick_filler()
         if filler:
-            yield _sse("audio_chunk", {"audio_b64": filler, "audio_mime": "audio/mpeg"})
+            yield turn.send(filler)
 
         # b. LLM 델타 → 문장 단위 TTS 파이프라인.
         #    TTS는 별도 풀에서 미리 돌리되, 재생 순서를 지키려고 완료된 앞 조각부터 내보낸다.
@@ -457,11 +493,14 @@ async def voice_chat_stream(
                     submit_tts(head)
                     first_sent = True
             while pending and pending[0].done():
-                yield _audio_event(pending.popleft().result())
+                yield turn.send(pending.popleft().result())
         if tail.strip():
             submit_tts(tail)
         while pending:
-            yield _audio_event(pending.popleft().result())  # 순서 보장 — 앞 조각부터 대기
+            # 순서 보장 — 앞 조각부터 대기. 마지막 조각에 final을 달아
+            # speaker_node가 지각 조각을 걸러낼 수 있게 한다.
+            chunk = pending.popleft().result()
+            yield turn.send(chunk, final=not pending)
 
         reply_text = "".join(parts).strip()
         elapsed_ms = round((time.monotonic() - started) * 1000)
@@ -500,8 +539,26 @@ async def voice_chat_stream(
 
 @app.post("/api/session/end")
 def end_session(session_id: str = Form("voice")) -> dict[str, Any]:
-    """대화 종료 — 히스토리를 백엔드에 저장하고 맥락을 비운다."""
-    return {"success": True, "saved": state.end_session(session_id)}
+    """대화 종료 — 히스토리를 백엔드에 저장하고 맥락을 비운다.
+
+    재생 중인 오디오도 멈춘다. 페이지를 떠났는데 로봇이 혼자 남은 답변을
+    계속 읊으면 이상하다.
+    """
+    saved = state.end_session(session_id)
+    try:
+        state.sink.cancel()
+    except Exception as exc:  # noqa: BLE001 — 정리 실패가 응답을 막으면 안 된다
+        logger.warning("재생 중단 신호 실패: %s", exc)
+    return {"success": True, "saved": saved}
+
+
+@app.on_event("shutdown")
+def _release_sink() -> None:
+    """서버를 내릴 때 ROS 노드를 정리한다."""
+    try:
+        state.sink.close()
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("오디오 싱크 정리 실패: %s", exc)
 
 
 def _error(status: int, message: str) -> JSONResponse:
@@ -544,7 +601,9 @@ _FIRST_CHUNK_CHARS = 20
 # 필러(맞장구) — LLM 첫 토큰 지연(GMS 경유 1.4~4.7초로 변동)이 커서, STT 직후
 # 미리 합성해둔 짧은 음성을 즉시 재생해 "5초 내 첫 소리"를 항상 보장한다.
 _FILLER_TEXTS = ["음, 잠깐만 생각해볼게요!", "어디 보자~", "음~ 좋은 질문이에요!"]
-_filler_cache: list[str] = []  # base64 mp3
+# 원본 바이트로 들고 있는다 — 로봇 스피커로 나갈 때는 파일로 써야 하고,
+# 브라우저로 나갈 때만 base64로 감싸면 되므로 디코드 왕복이 없다.
+_filler_cache: list[bytes] = []
 _filler_ready = threading.Event()
 
 
@@ -552,16 +611,14 @@ def _warm_fillers() -> None:
     """서버 시작 시 백그라운드로 필러 음성을 미리 합성해둔다."""
     for text in _FILLER_TEXTS:
         try:
-            _filler_cache.append(
-                base64.b64encode(state.speech.synthesize(text)).decode("ascii")
-            )
+            _filler_cache.append(state.speech.synthesize(text))
         except SpeechApiError as exc:
             logger.warning("필러 합성 실패 (없어도 동작): %s", exc)
     _filler_ready.set()
     logger.info("필러 음성 %d개 준비 완료", len(_filler_cache))
 
 
-def _pick_filler() -> Optional[str]:
+def _pick_filler() -> Optional[bytes]:
     if not _filler_ready.is_set() or not _filler_cache:
         return None
     return random.choice(_filler_cache)
@@ -592,10 +649,10 @@ def _cut_first_chunk(buffer: str) -> tuple[str, str]:
     return buffer.strip(), ""
 
 
-def _tts_job(text: str) -> Optional[str]:
+def _tts_job(text: str) -> Optional[bytes]:
     """TTS 한 조각. 실패는 None — 소리 한 조각이 빠져도 대화는 계속돼야 한다."""
     try:
-        return base64.b64encode(state.speech.synthesize(text)).decode("ascii")
+        return state.speech.synthesize(text)
     except SpeechApiError as exc:
         logger.error("TTS 조각 실패: %s", exc)
         return None
@@ -605,10 +662,47 @@ def _sse(event: str, payload: dict[str, Any]) -> str:
     return f"event: {event}\ndata: {json.dumps(payload, ensure_ascii=False)}\n\n"
 
 
-def _audio_event(audio_b64: Optional[str]) -> str:
-    if not audio_b64:
-        return ": tts-failed\n\n"  # SSE 주석 — 클라이언트는 그냥 무시한다
-    return _sse("audio_chunk", {"audio_b64": audio_b64, "audio_mime": "audio/mpeg"})
+class TurnAudio:
+    """한 턴의 오디오 조각을 싱크와 브라우저 양쪽으로 흘려보낸다.
+
+    조각마다 seq를 붙이는 것은 speaker_node가 순서를 지키고 재전송을
+    중복으로 걸러내기 위해서다. 필러도 같은 번호 체계를 쓴다 — 필러가
+    나가다 만 상태에서 새 질문이 오면 그것도 끊겨야 한다.
+    """
+
+    def __init__(self, turn_id: str) -> None:
+        self.turn_id = turn_id
+        self._seq = 0
+
+    def send(self, audio: Optional[bytes], final: bool = False) -> str:
+        """조각 하나를 내보내고 브라우저용 SSE 프레임을 돌려준다.
+
+        싱크 예외는 삼킨다 — 조각 하나가 스피커로 못 갔다고 턴 전체를
+        죽이면 사용자는 아무 답도 못 받는다. capture_command가 업로드
+        실패로 status를 ERROR로 뒤집지 않는 것과 같은 이유다.
+        """
+        if not audio:
+            return ": tts-failed\n\n"  # SSE 주석 — 클라이언트는 그냥 무시한다
+
+        seq = self._seq
+        self._seq += 1
+
+        try:
+            state.sink.emit(self.turn_id, seq, audio, final=final)
+        except Exception as exc:  # noqa: BLE001 — 스피커 실패가 대화를 끊으면 안 된다
+            logger.error("스피커로 조각을 보내지 못했습니다 (%s#%d): %s",
+                         self.turn_id, seq, exc)
+
+        if not state.sink.plays_on_browser:
+            return ""
+
+        return _sse(
+            "audio_chunk",
+            {
+                "audio_b64": base64.b64encode(audio).decode("ascii"),
+                "audio_mime": state.audio_mime,
+            },
+        )
 
 
 if __name__ == "__main__":

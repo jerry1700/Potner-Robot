@@ -58,6 +58,26 @@ speaker:
     wav_dir: ""
     wav_player: ["aplay", "-q", "{text}"]
 
+    # --- 음성 대화 (tts/play_audio) ---
+    # 로봇에서 돌아가는 voice-chat-server 가 GMS 로 합성한 오디오 조각을
+    # 스풀에 쓰고 경로를 발행합니다. 그걸 재생하는 명령입니다.
+    #
+    # GMS TTS 에 response_format=wav 를 요청하므로 aplay 로 충분합니다
+    # (실측 2026-08-03: 200, PCM 16bit mono 24kHz). 서버 쪽 TTS_FORMAT 을
+    # mp3 로 되돌리면 aplay 가 못 읽으니 여기도 함께 바꿔야 합니다:
+    #   sudo apt install mpg123
+    #   audio_player: ["mpg123", "-q", "{text}"]
+    audio_player: ["aplay", "-q", "{text}"]
+
+    # 조각이 쌓이는 디렉터리. 봉투로 들어온 경로가 이 아래인지 확인하고
+    # 벗어나면 거부합니다 — 경로도 노드 밖에서 온 문자열이라서입니다.
+    # 음성 서버의 TTS_SPOOL_DIR 과 같은 곳을 가리켜야 합니다.
+    audio_spool_dir: "/tmp/potner-tts"
+
+    # 재생을 기다리는 조각 수 상한. 문장 단위로 쪼개니 평범한 대답은
+    # 3~6조각입니다. 이보다 밀리면 재생이 생성을 못 따라간 것입니다.
+    audio_queue_max: 8
+
 safety:
   ros__parameters:
     scan_stop_distance: 0.25    # LiDAR 정지 거리 (m)
