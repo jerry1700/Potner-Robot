@@ -6,8 +6,11 @@ description: Run potner_llm's test suite (all tests/test_llm*.py files) and repo
 Run:
 
 ```bash
-pytest tests/test_llm.py tests/test_llm_service.py tests/test_llm_context.py tests/test_llm_sensors.py tests/test_llm_factcheck.py tests/test_llm_diary.py -v
+pytest tests/test_llm*.py -v
 ```
+
+(글롭이라 새 test_llm_*.py 파일이 생겨도 자동 포함된다 — 현재:
+llm, context, diary, factcheck, sensors, service, cli, webchat, sentences)
 
 Then:
 
