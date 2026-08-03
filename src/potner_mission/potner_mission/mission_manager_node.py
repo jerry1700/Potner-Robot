@@ -510,7 +510,7 @@ class MissionManager(Node):
                 f"{session.destination} 근처 도착. 정밀 도킹으로 넘깁니다."
             )
             self._navigate.begin_docking()
-            self._start_docking(marker_id, purpose=NAV_SERVER)
+            self._start_docking(marker_id)
             return
 
         if purpose == NAV_ARRIVAL_GREETING:
