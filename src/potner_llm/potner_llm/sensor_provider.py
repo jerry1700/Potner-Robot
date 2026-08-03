@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import urllib.error
 import urllib.request
 from datetime import datetime
@@ -57,6 +58,16 @@ _FIELD_ALIASES: dict[str, str] = {
 }
 
 _NUMERIC_FIELDS = ("soil", "temp", "humidity", "light", "co2")
+
+# Spring 서버 센서 조회 API(SensorType enum)의 값 → _FIELD_ALIASES가 아는 별칭.
+# 서버 응답이 센서별 배열이라(각 항목이 sensorType/value/status를 가짐), 이
+# 표로 평평한 dict를 만들어 parse_snapshot에 그대로 넘긴다.
+_SPRING_SENSOR_TYPE_TO_ALIAS: dict[str, str] = {
+    "TEMPERATURE": "temperature",
+    "HUMIDITY": "humidity",
+    "SOIL_MOISTURE": "soil_moisture",
+    "ILLUMINANCE": "illuminance",
+}
 
 # 라벨/주의 문구: (low 라벨, high 라벨, low 문구, high 문구)
 _LEVEL_TEXT: dict[str, tuple[str, str, str, str]] = {
@@ -224,6 +235,58 @@ class HttpSensorSource:
         return f"http:{self.url}"
 
 
+class SpringSensorSource:
+    """Spring 서버의 센서 조회 API에서 최신값을 받아오는 소스.
+
+    응답이 HttpSensorSource처럼 평평한 dict가 아니라
+    ``{"sensors": [{"sensorType": "TEMPERATURE", "value": 23.5, "status": "NORMAL"}, ...]}``
+    형태라, parse_snapshot이 기대하는 평평한 dict로 먼저 재구성한다.
+    ``status: "NO_DATA"``인 항목은 값을 안 싣는다(=None) — 나머지(STALE 포함)는
+    value를 그대로 쓴다. 서버 판정(LOW/NORMAL/HIGH)과 별개로 로봇 쪽
+    classify_metric이 절대 임계값으로 다시 판정하므로 중복돼도 문제없다.
+
+    인증 헤더 이름을 열어둔 이유는 이 API의 최종 인증 방식이 아직 정해지지
+    않았기 때문이다(docs/SERVER_REQUEST_SENSOR_AUTH.md 참고). 사용자
+    JWT 방식이면 token_header="Authorization"(기본값, "Bearer " 접두 자동
+    부착), 장치 토큰 방식(라즈베리 사진 업로드의 X-Device-Token과 동일
+    계열)이면 token_header="X-Device-Token"으로 config만 바꾸면 된다.
+    """
+
+    def __init__(
+        self,
+        url: str,
+        *,
+        token_provider: Callable[[], str],
+        token_header: str = "Authorization",
+        timeout_seconds: float = 5.0,
+    ) -> None:
+        self.url = url
+        self.token_provider = token_provider
+        self.token_header = token_header
+        self.timeout_seconds = timeout_seconds
+
+    def read(self) -> Optional[SensorSnapshot]:
+        token = self.token_provider()
+        header_value = f"Bearer {token}" if self.token_header == "Authorization" else token
+        request = urllib.request.Request(
+            self.url,
+            headers={"Accept": "application/json", self.token_header: header_value},
+        )
+        with urllib.request.urlopen(request, timeout=self.timeout_seconds) as response:
+            body = json.loads(response.read().decode("utf-8"))
+
+        flat: dict[str, Any] = {}
+        for item in body.get("sensors", []) if isinstance(body, dict) else []:
+            alias = _SPRING_SENSOR_TYPE_TO_ALIAS.get(item.get("sensorType"))
+            if alias is None or item.get("status") == "NO_DATA":
+                continue
+            flat[alias] = item.get("value")
+        return parse_snapshot(flat)
+
+    def describe(self) -> str:
+        return f"spring:{self.url}"
+
+
 # --- Provider (실패 흡수 + 양쪽 스택 인터페이스) -----------------------------------
 
 
@@ -273,10 +336,13 @@ def create_sensor_provider(config: dict[str, Any] | None = None) -> Optional[Sen
     config 예시::
 
         sensor:
-          source: file          # file | http | none
+          source: file          # file | http | spring | none
           path: data/sensors.json
           url: http://localhost:8000/sensors
           timeout_seconds: 5
+          # spring일 때 추가로 필요:
+          token_env: POTNER_SENSOR_TOKEN   # 값은 환경변수로, yaml엔 이름만
+          token_header: Authorization      # 또는 X-Device-Token
 
     source가 없거나 none이면 None을 돌려준다(호출부가 기본 동작 유지).
     잘못된 설정은 조용히 넘기지 않고 시작 시점에 ValueError로 알린다 —
@@ -297,4 +363,28 @@ def create_sensor_provider(config: dict[str, Any] | None = None) -> Optional[Sen
             raise ValueError("sensor.source=http에는 sensor.url이 필요하다")
         timeout = float(sensor_cfg.get("timeout_seconds", 5.0))
         return SensorDataProvider(HttpSensorSource(url, timeout_seconds=timeout))
+    if kind == "spring":
+        url = sensor_cfg.get("url")
+        if not url:
+            raise ValueError("sensor.source=spring에는 sensor.url이 필요하다")
+        token_env = sensor_cfg.get("token_env")
+        if not token_env:
+            raise ValueError("sensor.source=spring에는 sensor.token_env가 필요하다")
+        token_header = str(sensor_cfg.get("token_header", "Authorization"))
+        timeout = float(sensor_cfg.get("timeout_seconds", 5.0))
+
+        def _token_provider(env_name: str = str(token_env)) -> str:
+            token = os.environ.get(env_name, "").strip()
+            if not token:
+                raise RuntimeError(f"{env_name} 환경변수가 비어 있다 (sensor.source=spring)")
+            return token
+
+        return SensorDataProvider(
+            SpringSensorSource(
+                url,
+                token_provider=_token_provider,
+                token_header=token_header,
+                timeout_seconds=timeout,
+            )
+        )
     raise ValueError(f"알 수 없는 sensor.source: {kind}")
