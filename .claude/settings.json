@@ -1,0 +1,19 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python -m pytest tests/ -v)",
+      "Bash(python -m pytest tests/test_llm.py tests/test_llm_service.py -v)",
+      "Bash(python -m pytest tests/test_llm.py -v)",
+      "Bash(python -m pytest tests/test_llm_service.py -v)",
+      "Bash(python -m pytest tests/test_llm_context.py -v)",
+      "Bash(python -m pytest tests/test_llm_sensors.py -v)",
+      "Bash(python -m pytest tests/test_llm_factcheck.py -v)",
+      "Bash(python -m pytest tests/test_llm_diary.py -v)",
+      "Bash(python -m pytest tests/test_llm_context.py tests/test_llm.py -v)",
+      "Bash(python -m pytest tests/test_llm_sensors.py tests/test_llm.py -v)",
+      "Bash(python -m pytest tests/test_llm_factcheck.py tests/test_llm_service.py -v)",
+      "Skill(llm-test)",
+      "Skill(llm-test:*)"
+    ]
+  }
+}

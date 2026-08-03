@@ -6,6 +6,9 @@
 모델 제약 (2026-07 실측):
 - STT는 whisper-1만 허용. gpt-4o-transcribe(-mini)는 GMS allowlist 차단.
 - TTS는 gpt-4o-mini-tts만 허용. tts-1(-hd)는 차단.
+- allowlist는 모델 단위라 response_format은 자유롭다. mp3/wav 둘 다 200
+  (2026-08-03 실측). 로봇 스피커로 내보낼 때는 wav 를 쓴다 — aplay 로 바로
+  재생되어 mpg123 을 깔지 않아도 된다.
 """
 
 from __future__ import annotations
@@ -21,6 +24,18 @@ GMS_OPENAI_BASE_URL = "https://gms.ssafy.io/gmsapi/api.openai.com/v1"
 STT_MODEL = "whisper-1"
 TTS_MODEL = "gpt-4o-mini-tts"
 TTS_VOICE = "nova"
+
+# 브라우저 재생용 기본값. 로봇 스피커로 보낼 때는 app.py 가 wav 로 바꾼다.
+TTS_FORMAT = "mp3"
+
+# response_format -> (MIME, 파일 확장자). 스풀 파일명과 SSE 의 audio_mime
+# 이 갈라지지 않게 한곳에서 관리한다.
+AUDIO_FORMATS = {
+    "mp3": ("audio/mpeg", "mp3"),
+    "wav": ("audio/wav", "wav"),
+    "opus": ("audio/ogg", "ogg"),
+    "flac": ("audio/flac", "flac"),
+}
 # gpt-4o-mini-tts는 instructions로 말투를 조절할 수 있다.
 TTS_INSTRUCTIONS = "밝고 다정한 어린 식물 캐릭터의 말투로, 또박또박 자연스럽게 읽어줘."
 
@@ -31,6 +46,16 @@ class SpeechApiError(RuntimeError):
     """STT/TTS 호출 실패 (재시도 소진)."""
 
 
+def audio_mime(fmt: str) -> str:
+    """response_format 에 맞는 MIME. 모르는 포맷은 옥텟 스트림."""
+    return AUDIO_FORMATS.get(fmt, ("application/octet-stream", fmt))[0]
+
+
+def audio_extension(fmt: str) -> str:
+    """response_format 에 맞는 파일 확장자."""
+    return AUDIO_FORMATS.get(fmt, ("", fmt))[1]
+
+
 @dataclass
 class SpeechClient:
     api_key: str
@@ -38,6 +63,8 @@ class SpeechClient:
     timeout_seconds: float = 60.0
     max_retries: int = 2
     retry_backoff_seconds: float = 0.5
+    audio_format: str = TTS_FORMAT
+    """합성 결과 포맷. 로봇 스피커(aplay)로 보낼 때는 "wav"."""
 
     def transcribe(self, audio: bytes, *, filename: str, content_type: str) -> str:
         """음성 → 한국어 텍스트. 실패 시 SpeechApiError."""
@@ -56,9 +83,15 @@ class SpeechClient:
         )
         return text
 
-    def synthesize(self, text: str) -> bytes:
-        """텍스트 → mp3 바이트. 실패 시 SpeechApiError."""
+    def synthesize(self, text: str, *, fmt: str | None = None) -> bytes:
+        """텍스트 → 오디오 바이트. 실패 시 SpeechApiError.
+
+        Args:
+            text: 읽을 문장
+            fmt: response_format. 생략하면 audio_format(기본 mp3).
+        """
         started = time.monotonic()
+        resolved = fmt or self.audio_format
         resp = self._post_with_retry(
             "/audio/speech",
             json={
@@ -66,13 +99,14 @@ class SpeechClient:
                 "voice": TTS_VOICE,
                 "input": text,
                 "instructions": TTS_INSTRUCTIONS,
-                "response_format": "mp3",
+                "response_format": resolved,
             },
         )
         logger.info(
-            "TTS ok %.0fms chars=%d mp3=%dB",
+            "TTS ok %.0fms chars=%d %s=%dB",
             (time.monotonic() - started) * 1000,
             len(text),
+            resolved,
             len(resp.content),
         )
         return resp.content

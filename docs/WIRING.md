@@ -51,7 +51,7 @@
 |---|---|---|
 | USB | LiDAR (YDLIDAR X4 Pro) | `/dev/ttyUSB*`, ESP32와 시리얼 번호로 구분 |
 | USB | 카메라 (BRIO 100) | |
-| USB | 사운드카드 → PAM8403 앰프 → 8Ω 스피커 | |
+| USB | 사운드카드 → PAM8403 앰프 → 8Ω 스피커 | 확인: `aplay -l` (아래) |
 | USB | ESP32 | `/dev/ttyUSB_ESP32` (udev 규칙으로 고정) |
 | DP (액티브 어댑터) | 7인치 LCD 1024×600 | 젯슨에 HDMI 단자 없음. 패시브 어댑터 동작 안 함 → [`JETSON_DISPLAY.md`](JETSON_DISPLAY.md) |
 | I2C 버스7 (40핀 헤더 3번=SDA, 5번=SCL) | BH1750, ADS1115, INA226 | 세 칩이 같은 버스를 병렬 공유, 주소로 구분 |
@@ -59,6 +59,31 @@
 **LiDAR·ESP32가 둘 다 `/dev/ttyUSB*`로 잡히는 문제**: 둘 다 CP210x 칩이라
 꽂는 순서에 따라 번호가 바뀔 수 있습니다. 시리얼 번호로 구분한 udev
 규칙이 이미 있습니다 (`README.md` "USB 장치 이름 고정" 참고).
+
+### 스피커가 안 들릴 때
+
+소리가 안 나면 대부분 하드웨어가 아니라 **어떤 카드로 나가는지**의 문제입니다.
+젯슨은 DP 출력에도 오디오 장치가 잡혀서, 기본 카드가 USB 사운드카드가 아니면
+소리가 화면 쪽으로 나갑니다.
+
+```bash
+aplay -l                              # 카드·장치 번호 확인 (USB 사운드카드를 찾는다)
+speaker-test -t wav -c 2 -l 1         # 기본 카드로 실제 소리
+aplay -D plughw:1,0 어떤파일.wav        # 특정 카드로 강제 재생 (1 = 위에서 본 카드 번호)
+amixer -c 1 sset 'PCM' 90%            # 볼륨 (카드마다 컨트롤 이름이 다름: amixer -c 1 scontrols)
+```
+
+기본 카드를 USB 사운드카드로 고정하려면 `/etc/asound.conf` 또는 `~/.asoundrc`:
+
+```
+defaults.pcm.card 1
+defaults.ctl.card 1
+```
+
+`speaker_node`가 쓰는 재생 명령은 `potner_params.yaml`의 `speaker.audio_player`
+(기본 `["aplay", "-q", "{text}"]`)입니다. 카드를 명시하려면 여기에 `-D` 를
+넣으세요. 음성 대화 전체 흐름은
+[`../voice-chat-server/README.md`](../voice-chat-server/README.md).
 
 ---
 
