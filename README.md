@@ -214,9 +214,9 @@ ros2 launch potner_bringup robot.launch.py use_lidar:=false
 # 터미널 2 — 나가는 주행 명령 관찰
 ros2 topic echo /cmd_vel_docking
 
-# 터미널 3 — 도킹 목표 전송 (마커 1번 = 충전 스테이션)
+# 터미널 3 — 도킹 목표 전송 (마커 2번 = 스테이션)
 ros2 action send_goal /dock_to_station potner_msgs/action/DockToStation \
-    "{marker_id: 1}" --feedback
+    "{marker_id: 2}" --feedback
 ```
 
 마커를 손에 들고 움직이며 확인할 것:
@@ -287,7 +287,7 @@ ROS 2 없이 돌아갑니다. 젠킨스 CI가 이 테스트와 flake8 문법 검
 - [ ] 카메라 초점거리 보정 (`focal_calibrator`)
 - [ ] ESP32 펌웨어 실기 검증 및 PID 튜닝
 - [ ] 축간거리(`wheel_separation`) 실측
-- [ ] SLAM 지도 생성 후 `station_poses` 좌표 채우기
+- [ ] SLAM 지도 생성 후 서버에 목적지 좌표 등록 (`PUT /robots/{id}/locations/{type}/pose`)
 - [ ] YOLO TensorRT 변환 (`yolo export format=engine`)
 - [ ] 스테이션 완성 후 `require_station_confirm: true` 로 전환
 - [ ] `legacy/sensors/ultrasonic.py` 를 `Raspberry-master` 로 이관

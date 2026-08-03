@@ -25,6 +25,7 @@ from .exceptions import (
     LlmResponseParseError,
     LlmTimeoutError,
 )
+from .factcheck import ACTION_RETRY, DEFAULT_POLICY, next_action, verify_response
 from .models import ChatResult, PlantProfile, SensorSnapshot
 from .postprocessor import postprocess
 from .prompt_builder import build_system_prompt
@@ -73,7 +74,10 @@ class PlantChatService:
         timestamp = datetime.now().astimezone().isoformat(timespec="seconds")
 
         profile = self._safe_profile()
-        sensors = self._safe_sensors().with_defaults(self.settings.default_sensor_values)
+        raw_sensors = self._safe_sensors()
+        # 사실성 검증은 기본값으로 채우기 전의 원시 스냅샷 기준 —
+        # DEFAULT_SENSOR_VALUES로 지어낸 값과 맞춰보면 가짜 근거 검증이 된다.
+        sensors = raw_sensors.with_defaults(self.settings.default_sensor_values)
 
         # 1) 입력 검증
         try:
@@ -93,14 +97,22 @@ class PlantChatService:
         system_prompt = build_system_prompt(profile, sensors, self.settings)
         logger.info("LLM 요청 시작 model=%s question=%r", self.client.model, cleaned_question)
 
-        try:
-            raw_reply = self.client.complete(
-                cleaned_question,
-                system=system_prompt,
-                temperature=self.settings.temperature,
-            )
-        except LlmError as exc:
-            return self._error_result(exc, profile, sensors, timestamp, started).to_dict()
+        fact = None
+        for attempt in range(DEFAULT_POLICY.max_retries + 1):
+            try:
+                raw_reply = self.client.complete(
+                    cleaned_question,
+                    system=system_prompt,
+                    temperature=self.settings.temperature,
+                )
+            except LlmError as exc:
+                return self._error_result(exc, profile, sensors, timestamp, started).to_dict()
+            if raw_reply is None:
+                break
+            # 5.5) 사실성 검증 — 후처리(문장 절단) 전 원문 기준. 상충이면 재생성.
+            fact = verify_response(raw_reply, raw_sensors, profile)
+            if next_action(fact, attempt) != ACTION_RETRY:
+                break
 
         elapsed_ms = (time.monotonic() - started) * 1000
 
@@ -133,6 +145,23 @@ class PlantChatService:
                 sensors=sensors,
                 timestamp=timestamp,
                 error_code=f"invalid_response:{invalid_reason}",
+                fallback=True,
+            ).to_dict()
+
+        # 6.5) 사실성 검증 최종 판정 — 재생성까지 실패면 폴백 (무응답 금지 불변식 유지)
+        if fact is not None and not fact.ok:
+            logger.warning(
+                "사실성 검증 최종 실패 — 폴백 응답 반환 (%.0fms) 사유=%s",
+                elapsed_ms,
+                ", ".join(fact.issue_codes),
+            )
+            return self._result(
+                success=True,
+                message=self.settings.fallback_message,
+                profile=profile,
+                sensors=sensors,
+                timestamp=timestamp,
+                error_code=f"fact_check:{fact.issue_codes[0]}",
                 fallback=True,
             ).to_dict()
 

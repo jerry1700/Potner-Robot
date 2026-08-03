@@ -1,23 +1,34 @@
-"""mission_manager — 로봇이 다음에 무엇을 할지 정하는 두뇌.
+"""mission_manager — 서버가 내린 명령을 실제 움직임으로 바꾸는 곳.
 
-legacy/main.py 의 우선순위 스케줄러를 옮겼습니다. 가장 큰 차이는
-**블로킹하지 않는다**는 점입니다. 기존 코드는 start_docking() 이 끝날
-때까지 while 루프가 멈춰 있어서, 도킹 중에는 사용자가 귀가해도 반응할
-수 없었습니다. 여기서는 Nav2와 도킹을 액션으로 보내고 결과를 콜백으로
+**로봇은 스스로 갈 곳을 정하지 않습니다.** 센서를 읽고 판단하는 쪽은
+서버이고, 여기는 받은 명령을 수행하고 결과를 되돌립니다. 예전에는 젯슨이
+센서 임계값으로 임무를 정했지만(legacy/main.py 의 우선순위 스케줄러),
+서버와 로봇이 동시에 로봇을 움직여 왕복하는 문제가 있어 걷어냈습니다.
+
+명령 두 갈래:
+
+    navigate       서버 좌표로 이동 ─(급수 스테이션이면 도킹)─> OK 회신
+    welcome_start  GREETING 으로 마중 ─(사람/시간 만료)─> HOME 복귀
+
+    IDLE ─> NAVIGATING ─> DOCKING ─> SERVICING(스테이션 파킹) ─> IDLE
+       └─> NAVIGATING ─> GREETING ─> IDLE
+
+navigate 는 자동 급수·촬영·말리기·햇빛 이동의 시작점입니다. 급수
+스테이션에 도착하면 서버가 라즈베리에 급수·송풍·촬영을 시키는데, 젯슨은
+그게 끝났는지 알 방법이 없습니다. 그래서 **다음 이동 명령이 올 때까지 그
+자리를 SERVICING 으로 지킵니다** — 그 동안 마중 명령은 거절합니다. 물을
+받다 말고 떠나면 바닥에 쏟기 때문입니다.
+
+인사는 아무 때나 하지 않습니다. 서버의 welcome_start가 인사를 무장시키고,
+GREETING 도착 뒤 waitSeconds 안에 카메라가 사람을 보면 그때 인사합니다.
+welcome_cancel은 진행 중 이동과 대기를 끊고 HOME으로 복귀시킵니다.
+
+**블로킹하지 않습니다.** Nav2와 도킹을 액션으로 보내고 결과를 콜백으로
 받아, 기다리는 동안에도 다른 이벤트를 처리합니다.
 
-임무 흐름:
-
-    IDLE ─(센서 기준 초과)─> NAVIGATING ─> DOCKING ─> SERVICING ─> IDLE
-       └─(귀가 알림)─> [맞이 위치로 이동] ─(사람 감지)─> GREETING ─> IDLE
-
-인사는 아무 때나 하지 않습니다. 앱의 귀가 알림(서버 command/greet)이
-인사를 무장시키고, 무장된 시간창 안에 카메라가 사람을 보면 그때 인사합니다.
-판단 로직은 potner_mission.greeting 에 있습니다.
-
 Nav2 와 도킹의 역할을 나눈 이유가 있습니다. Nav2 는 지도 좌표까지 잘
-데려다주지만 도착 오차가 수십 cm 입니다. 충전 단자를 맞추려면 cm 단위가
-필요해서 마지막 구간만 마커를 보는 전용 컨트롤러가 맡습니다.
+데려다주지만 도착 오차가 수십 cm 입니다. 급수 노즐과 카메라를 맞추려면
+cm 단위가 필요해서 마지막 구간만 마커를 보는 전용 컨트롤러가 맡습니다.
 """
 
 import math
@@ -28,11 +39,35 @@ from geometry_msgs.msg import PoseStamped
 from nav2_msgs.action import NavigateToPose
 from rclpy.action import ActionClient
 from rclpy.node import Node
-from std_msgs.msg import Bool, Float32, String
+from std_msgs.msg import Bool, String
 
+from potner_bridge.arrival_contract import (
+    ArrivalCommandError,
+    WelcomeCancelCommand,
+    WelcomeStartCommand,
+    parse_internal_arrival_command,
+    result_envelope,
+)
+from potner_bridge.command_result import CommandError
+from potner_bridge.navigate_contract import (
+    DOCKING_MARKERS,
+    WATER_STATION,
+    parse_internal_navigate_command,
+)
 from potner_msgs.action import DockToStation
+from potner_mission.arrival_session import (
+    ArrivalSessionController,
+    ArrivalStage,
+    DecisionKind,
+    MissionResult,
+)
 from potner_mission.greeting import GreetingPolicy
-from potner_mission.priority import Readings, StationMarker, Thresholds, evaluate
+from potner_mission.navigate_session import NavigateSessionController
+
+# Nav2 목표를 누가 왜 보냈는지. 도착했을 때 무엇을 할지가 여기서 갈립니다.
+NAV_ARRIVAL_GREETING = "arrival_greeting"
+NAV_ARRIVAL_HOME = "arrival_home"
+NAV_SERVER = "server_navigate"    # 서버 command/navigate
 
 
 class MissionState(Enum):
@@ -47,66 +82,43 @@ class MissionManager(Node):
     def __init__(self):
         super().__init__("mission_manager")
 
-        self.declare_parameter("battery_percent", 20.0)
-        self.declare_parameter("moisture_percent", 30.0)
-        self.declare_parameter("light_lux", 200.0)
-        self.declare_parameter("temperature_celsius", 30.0)
-        self.declare_parameter("evaluate_period", 2.0)
+        self.declare_parameter("state_publish_period", 2.0)
         self.declare_parameter("greeting_cooldown", 300.0)
-        self.declare_parameter("greet_arm_duration", 600.0)
-        self.declare_parameter("service_duration", 10.0)
         self.declare_parameter("docking_timeout", 90.0)
+        self.declare_parameter("arrival_home_timeout", 120.0)
+        self.declare_parameter("navigate_timeout", 300.0)
         self.declare_parameter("skip_navigation", False)
 
-        # 스테이션별 지도 좌표 [x, y, yaw(rad)]
-        # TODO: SLAM 으로 지도를 만든 뒤 실제 좌표로 교체할 것.
-        #   RViz 에서 스테이션 앞에 커서를 올리고 좌표를 읽으면 됩니다.
-        for name in ("charging", "water", "sunlight", "wind"):
-            self.declare_parameter(f"station_poses.{name}", [0.0, 0.0, 0.0])
-
-        # 맞이 위치 — 현관이 보이는 지점 [x, y, yaw(rad)].
-        # 전부 0 이면 미설정으로 보고 이동 없이 제자리에서 무장만 합니다.
-        # 지도가 생기기 전에도 기능의 나머지가 다 돌게 하기 위한 것입니다.
-        self.declare_parameter("greet_pose", [0.0, 0.0, 0.0])
-
-        self.thresholds = Thresholds(
-            battery_percent=self.get_parameter("battery_percent").value,
-            moisture_percent=self.get_parameter("moisture_percent").value,
-            light_lux=self.get_parameter("light_lux").value,
-            temperature_celsius=self.get_parameter("temperature_celsius").value,
-        )
-
         self.state = MissionState.IDLE
-        self.readings = Readings()
         self.greeting = GreetingPolicy(
-            arm_duration=self.get_parameter("greet_arm_duration").value,
             cooldown=self.get_parameter("greeting_cooldown").value,
         )
-        self._active_station = None
-        self._service_timer = None
-        # Nav2 를 스테이션 이동과 마중 이동이 같이 쓰므로, 도착했을 때
-        # 도킹으로 넘길지 제자리 대기로 넘길지를 이걸로 구분합니다.
+        self._arrival = ArrivalSessionController()
+        self._navigate = NavigateSessionController()
+        self._arrival_wait_timer = None
+        self._arrival_timeout_timer = None
+        self._navigate_timeout_timer = None
+        # Nav2 를 서버 이동과 마중 이동이 같이 쓰므로, 도착했을 때 도킹으로
+        # 넘길지 제자리 대기로 넘길지를 이걸로 구분합니다.
         self._nav_purpose = None
+        self._nav_goal_handle = None
+        self._nav_generation = 0
 
-        # 식물 센서 (plant_sensors 노드가 발행)
-        self.create_subscription(Float32, "plant/moisture", self._set("moisture"), 10)
-        self.create_subscription(Float32, "plant/lux", self._set("light"), 10)
-        # ★ 대기 온도는 현재 아무도 발행하지 않아 계속 None 입니다.
-        #   스테이션이 재서 서버로 올리는데, 브로커 ACL 이 기기끼리 주고받는
-        #   것을 막아 로봇이 그 값을 받을 경로가 없습니다 (DEVICE-MQTT.md 3절).
-        #   그래서 송풍(WIND) 임무는 지금 절대 걸리지 않습니다. Readings 가
-        #   None 을 건너뛰므로 오작동은 아니고, 서버가 command 로 온도를
-        #   내려주기로 정해지면 그때 연결하면 됩니다.
-        self.create_subscription(
-            Float32, "plant/temperature", self._set("temperature"), 10
-        )
-        self.create_subscription(Float32, "battery/percent", self._set("battery"), 10)
+        # 식물 센서는 구독하지 않습니다. 판단하는 쪽이 서버라서 로봇이
+        # 값을 볼 이유가 없습니다. 측정값은 plant_sensors -> mqtt_bridge 로
+        # 곧장 갑니다.
 
         # 사람 감지 (person_detector 노드가 발행)
         self.create_subscription(Bool, "perception/person_present", self._on_person, 10)
 
-        # 귀가 알림 (앱 지오펜스 -> 서버 command/greet -> mqtt_bridge 가 중계)
-        self.create_subscription(String, "mission/greet_command", self._on_greet_command, 10)
+        # mqtt_bridge가 검증한 실제 서버 welcome_start/cancel 명령.
+        self.create_subscription(
+            String, "mission/arrival_command", self._on_arrival_command, 10
+        )
+        # 서버 command/navigate. 자동 급수·촬영·말리기·햇빛 이동의 시작점.
+        self.create_subscription(
+            String, "mission/navigate_command", self._on_navigate_command, 10
+        )
 
         self._speech_pub = self.create_publisher(String, "tts/say", 10)
         # 인사하는 순간의 표정. 평소 표정은 서버가 정하지만(30초 주기 반복),
@@ -114,50 +126,179 @@ class MissionManager(Node):
         # 돌아오면 서버 값으로 자연히 덮입니다.
         self._expression_pub = self.create_publisher(String, "display/expression", 10)
         self._state_pub = self.create_publisher(String, "mission/state", 10)
-        # 스테이션에 서비스 시작을 요청합니다.
-        # ★ 로봇 안에서만 흐릅니다. 예전에는 mqtt_bridge 가 이걸
-        #   potner/station/.../request 로 중계했지만 브로커 ACL 이 그 경로를
-        #   막습니다. 급수 명령은 서버가 스테이션에 직접 보내는 것으로
-        #   정리됐습니다 (DEVICE-MQTT.md 12절). 로봇의 의도를 로그로 남기고
-        #   서비스 타이머를 걸기 위해 발행은 유지합니다.
-        self._service_pub = self.create_publisher(String, "station/request", 10)
-
+        self._arrival_result_pub = self.create_publisher(
+            String, "mission/arrival_result", 10
+        )
+        self._navigate_result_pub = self.create_publisher(
+            String, "mission/navigate_result", 10
+        )
         self._nav_client = ActionClient(self, NavigateToPose, "navigate_to_pose")
         self._dock_client = ActionClient(self, DockToStation, "dock_to_station")
 
-        self.create_timer(self.get_parameter("evaluate_period").value, self._evaluate)
+        self.create_timer(
+            self.get_parameter("state_publish_period").value, self._publish_state
+        )
         self.get_logger().info("mission_manager 시작 (상태: IDLE)")
 
     # --- 입력 ---
 
-    def _set(self, field):
-        """Float32 토픽 값을 Readings 의 해당 필드에 넣는 콜백을 만듭니다."""
-
-        def callback(msg):
-            setattr(self.readings, field, msg.data)
-
-        return callback
-
     def _now_s(self) -> float:
         return self.get_clock().now().nanoseconds * 1e-9
 
-    def _on_greet_command(self, msg: String):
-        """앱의 귀가 알림. 인사를 무장하고 맞이 위치로 이동합니다.
+    def _on_arrival_command(self, msg: String):
+        """검증된 welcome_start/cancel을 실제 Nav2 임무로 바꿉니다."""
+        try:
+            command = parse_internal_arrival_command(msg.data)
+        except ArrivalCommandError as exc:
+            self.get_logger().error(f"귀가 내부 명령 거부: {exc}")
+            return
 
-        임무 수행 중(급수 이동 등)이면 이동은 하지 않고 무장만 합니다.
-        임무가 끝나고 시간창 안에 사람이 보이면 그 자리에서라도 인사합니다.
-        마중이 늦는 것이 급수를 버리는 것보다 낫습니다.
-        """
-        self.greeting.arm(self._now_s())
-        self.get_logger().info(
-            f"귀가 알림 수신 — {self.greeting.arm_duration:.0f}초간 인사 대기"
+        # 서버 이동 명령이 로봇을 붙들고 있으면 마중을 나가지 않습니다.
+        # 급수 스테이션에 대어 놓은 동안이 특히 그렇습니다 — 서버가
+        # 라즈베리에 급수·촬영을 시키는 중인데 로봇이 떠나면 물이 바닥에
+        # 쏟아집니다. 그 자리에서는 상태가 IDLE 이라 상태만으로는 알 수
+        # 없어서 이동 세션에 따로 물어봅니다.
+        busy_error, busy_code = self._navigate.busy_reason()
+        robot_idle = (
+            self.state is MissionState.IDLE and not self._navigate.blocks_arrival
+        )
+        if isinstance(command, WelcomeStartCommand):
+            decision = self._arrival.accept_start(
+                command,
+                self._now_s(),
+                robot_idle,
+                busy_error=busy_error,
+                busy_code=busy_code,
+            )
+            if self._finish_decision(decision):
+                return
+            self.greeting.arm(
+                self._now_s(), duration=float(command.wait_seconds)
+            )
+            self._start_arrival_timeout(command.total_timeout_seconds)
+            self.get_logger().info(
+                f"귀가 마중 시작: visitId={command.visit_id}, "
+                f"GREETING={command.greeting}, HOME={command.home}"
+            )
+            self._start_arrival_navigation(
+                command.greeting, purpose=NAV_ARRIVAL_GREETING
+            )
+            return
+
+        if isinstance(command, WelcomeCancelCommand):
+            decision = self._arrival.accept_cancel(
+                command,
+                self._now_s(),
+                robot_idle,
+                busy_error=busy_error,
+                busy_code=busy_code,
+            )
+            if self._finish_decision(decision):
+                return
+            self.get_logger().info(
+                f"귀가 마중 취소: visitId={command.visit_id} -> HOME"
+            )
+            self.greeting.disarm()
+            self._cancel_arrival_timers()
+            home_timeout = int(
+                self.get_parameter("arrival_home_timeout").value
+            )
+            self._arrival.reset_total_timeout(self._now_s(), home_timeout)
+            self._start_arrival_timeout(home_timeout)
+            self._cancel_active_navigation()
+            self._start_arrival_navigation(
+                command.home, purpose=NAV_ARRIVAL_HOME
+            )
+
+    def _finish_decision(self, decision) -> bool:
+        if decision.kind is DecisionKind.ACCEPTED:
+            return False
+        if decision.result is not None:
+            self._publish_arrival_result(decision.result)
+        if decision.kind is DecisionKind.DUPLICATE_PENDING:
+            self.get_logger().info("진행 중인 귀가 명령이 중복 수신되어 무시합니다.")
+        return True
+
+    def _on_navigate_command(self, msg: String):
+        """검증된 서버 이동 명령을 실제 Nav2 임무로 바꿉니다."""
+        try:
+            command = parse_internal_navigate_command(msg.data)
+        except CommandError as exc:
+            self.get_logger().error(f"이동 내부 명령 거부: {exc}")
+            return
+
+        decision = self._navigate.accept(
+            command, self._now_s(), self._ready_for_server_command()
         )
 
-        if self.state is MissionState.IDLE:
-            self._start_greet_navigation()
+        if decision.kind is not DecisionKind.ACCEPTED:
+            if decision.result is not None:
+                self._publish_navigate_result(decision.result)
+            if decision.kind is DecisionKind.DUPLICATE_PENDING:
+                # QoS 1 재전송입니다. 여기서 BUSY 를 보내면 서버가 지금
+                # 수행 중인 명령을 실패로 확정해(BUSY 도 종단 상태) 자동
+                # 케어 체인이 끊깁니다. 도착했을 때 한 번만 회신합니다.
+                self.get_logger().info(
+                    f"진행 중인 이동 명령이 중복 수신되어 무시합니다: "
+                    f"requestId={command.request_id}"
+                )
+            return
+
+        self.get_logger().info(
+            f"이동 명령: {command.destination} "
+            f"(x={command.pose.x}, y={command.pose.y}, yaw={command.pose.yaw}), "
+            f"requestId={command.request_id}"
+        )
+        self._start_navigate_timeout()
+        self._start_server_navigation(command)
+
+    def _ready_for_server_command(self) -> bool:
+        """새 이동 명령을 받아도 되는 상태인지.
+
+        스테이션에 대어 놓은 동안(``SERVICING``)도 받아야 합니다. 급수가
+        끝나면 서버가 HOME 복귀를 보내는데, 그걸 BUSY 로 막으면 로봇이
+        스테이션에서 영영 나오지 못하고 체인이 죽습니다.
+
+        반대로 귀가 마중은 GREETING 에서 사람을 기다리는 동안 상태가
+        ``IDLE`` 입니다. 상태만 보면 한가해 보여서, 이동 명령을 받아 마중
+        나간 로봇을 끌고 가 버립니다. 그래서 세션을 따로 확인합니다.
+        """
+        return self._arrival.active is None and self.state in (
+            MissionState.IDLE,
+            MissionState.SERVICING,
+        )
+
+    def _publish_arrival_result(self, result: MissionResult):
+        self._publish_result(self._arrival_result_pub, result, "귀가")
+
+    def _publish_navigate_result(self, result: MissionResult):
+        self._publish_result(self._navigate_result_pub, result, "이동")
+
+    def _publish_result(self, publisher, result: MissionResult, label: str):
+        publisher.publish(
+            String(
+                data=result_envelope(
+                    result.command_name,
+                    result.request_id,
+                    result.status,
+                    error=result.error,
+                    code=result.code,
+                )
+            )
+        )
+        self.get_logger().info(
+            f"{label} 결과 전달: command={result.command_name}, "
+            f"requestId={result.request_id}, status={result.status}"
+        )
 
     def _on_person(self, msg: Bool):
-        if not msg.data or self.state is not MissionState.IDLE:
+        session = self._arrival.active
+        if (
+            not msg.data
+            or self.state is not MissionState.IDLE
+            or session is None
+            or session.stage is not ArrivalStage.WAITING_AT_GREETING
+        ):
             return
         now = self._now_s()
         if not self.greeting.should_greet(now, person_present=True):
@@ -171,86 +312,143 @@ class MissionManager(Node):
         # 지금은 네트워크 없이도 데모가 되도록 고정 문구를 씁니다.
         self._speech_pub.publish(String(data="다녀오셨어요? 오늘도 잘 지냈어요."))
         self._transition(MissionState.IDLE)
+        self._begin_return_home("사용자 인식")
 
-    # --- 판단 ---
+    def _start_arrival_timeout(self, seconds: int):
+        if self._arrival_timeout_timer is not None:
+            self._arrival_timeout_timer.cancel()
+        self._arrival_timeout_timer = self.create_timer(
+            float(seconds), self._on_arrival_timeout
+        )
 
-    def _evaluate(self):
-        self._state_pub.publish(String(data=self.state.name))
+    def _start_arrival_wait(self, seconds: int):
+        if self._arrival_wait_timer is not None:
+            self._arrival_wait_timer.cancel()
+        self._arrival_wait_timer = self.create_timer(
+            float(seconds), self._on_arrival_wait_expired
+        )
 
-        if self.state is not MissionState.IDLE:
+    def _on_arrival_wait_expired(self):
+        if self._arrival_wait_timer is not None:
+            self._arrival_wait_timer.cancel()
+            self._arrival_wait_timer = None
+        if self._arrival.waiting_expired(self._now_s()):
+            self._begin_return_home("맞이 대기시간 만료")
+
+    def _on_arrival_timeout(self):
+        if self._arrival_timeout_timer is not None:
+            self._arrival_timeout_timer.cancel()
+            self._arrival_timeout_timer = None
+        if not self._arrival.total_timeout_expired(self._now_s()):
             return
 
-        # 인사 대기 중에는 새 임무를 시작하지 않습니다. 사용자가 곧 문을
-        # 여는데 로봇이 급수하러 떠나면 마중이라는 기능 자체가 무너집니다.
-        # 시간창(기본 10분)이 짧아서 임무가 크게 밀리지도 않습니다.
-        if self.greeting.is_armed(self._now_s()):
+        session = self._arrival.active
+        if session is None:
             return
+        if session.stage is ArrivalStage.NAVIGATING_HOME:
+            self._cancel_active_navigation()
+            result = self._arrival.fail_current(
+                "HOME 복귀 제한시간을 초과했습니다.",
+                "HOME_TIMEOUT",
+            )
+            if result is not None:
+                self._publish_arrival_result(result)
+            self.greeting.disarm()
+            self._transition(MissionState.IDLE)
+            return
+        if session.stage is ArrivalStage.NAVIGATING_GREETING:
+            result = self._arrival.fail_current(
+                "전체 제한시간 안에 GREETING에 도착하지 못했습니다.",
+                "TOTAL_TIMEOUT",
+            )
+            if result is not None:
+                self._publish_arrival_result(result)
+        self._begin_return_home("전체 제한시간 만료", reset_timeout=True)
 
-        station = evaluate(self.readings, self.thresholds)
-        if station is not None:
-            self.get_logger().info(f"임무 발생: {station.name} 스테이션으로 이동")
-            self._active_station = station
-            self._start_navigation(station)
+    def _begin_return_home(self, reason: str, reset_timeout: bool = False):
+        session = self._arrival.active
+        if session is None:
+            return
+        self.get_logger().info(f"{reason} -> HOME 복귀")
+        self.greeting.disarm()
+        if self._arrival_wait_timer is not None:
+            self._arrival_wait_timer.cancel()
+            self._arrival_wait_timer = None
+        if reset_timeout:
+            home_timeout = int(
+                self.get_parameter("arrival_home_timeout").value
+            )
+            self._arrival.reset_total_timeout(self._now_s(), home_timeout)
+            self._start_arrival_timeout(home_timeout)
+        self._arrival.begin_return_home()
+        self._cancel_active_navigation()
+        self._start_arrival_navigation(
+            session.home, purpose=NAV_ARRIVAL_HOME
+        )
+
+    def _cancel_arrival_timers(self):
+        for name in ("_arrival_wait_timer", "_arrival_timeout_timer"):
+            timer = getattr(self, name)
+            if timer is not None:
+                timer.cancel()
+                setattr(self, name, None)
 
     # --- 이동 ---
 
-    def _start_navigation(self, station: StationMarker):
+    def _start_arrival_navigation(self, map_pose, purpose: str):
+        """서버가 보낸 지도 좌표를 실제 Nav2 목표로 실행합니다."""
+        pose = self._map_pose(map_pose)
         if self.get_parameter("skip_navigation").value:
-            # 지도가 아직 없을 때 도킹만 따로 시험하기 위한 우회 경로입니다.
-            self.get_logger().warn("skip_navigation=True — 이동을 건너뛰고 도킹합니다.")
-            self._start_docking(station)
-            return
-
-        pose = self._pose_from(self.get_parameter(f"station_poses.{station.name.lower()}").value)
-        if pose is None:
-            self.get_logger().error(
-                f"{station.name} 스테이션 좌표가 설정되지 않았습니다. "
-                "station_poses 를 채우세요."
+            self.get_logger().warn(
+                f"skip_navigation=True - {purpose} Nav2 이동을 시험용으로 건너뜁니다."
             )
-            self._abort()
+            self._handle_nav_success(purpose)
             return
+        self._send_nav_goal(pose, purpose=purpose)
 
-        self._send_nav_goal(pose, purpose="station")
-
-    def _start_greet_navigation(self):
-        """맞이 위치로 이동합니다. 좌표가 없으면 제자리에서 무장만 합니다.
-
-        스테이션 이동과 달리 좌표 미설정이 에러가 아닙니다 — 지도가 생기기
-        전에도 "무장 -> 사람 인식 -> 인사"까지는 다 돌아야 하기 때문입니다.
-        """
-        pose = self._pose_from(self.get_parameter("greet_pose").value)
-        if pose is None or self.get_parameter("skip_navigation").value:
-            self.get_logger().info("맞이 위치 미설정 — 제자리에서 인사를 기다립니다.")
+    def _start_server_navigation(self, command):
+        """서버 command/navigate 의 좌표로 이동합니다."""
+        pose = self._map_pose(command.pose)
+        if self.get_parameter("skip_navigation").value:
+            self.get_logger().warn(
+                "skip_navigation=True - 서버 이동을 시험용으로 건너뜁니다."
+            )
+            self._handle_nav_success(NAV_SERVER)
             return
-
-        self._send_nav_goal(pose, purpose="greet")
+        self._send_nav_goal(pose, purpose=NAV_SERVER)
 
     def _send_nav_goal(self, pose: PoseStamped, purpose: str):
         if not self._nav_client.wait_for_server(timeout_sec=2.0):
             self.get_logger().error("Nav2 액션 서버가 없습니다.")
-            if purpose == "station":
-                self._abort()
-            # 마중 이동 실패는 임무 실패가 아닙니다. 제자리에서 기다립니다.
+            self._handle_nav_failure(
+                purpose, "Nav2 액션 서버에 연결할 수 없습니다.", "NAV2_UNAVAILABLE"
+            )
             return
 
+        self._nav_generation += 1
+        generation = self._nav_generation
         self._nav_purpose = purpose
         self._transition(MissionState.NAVIGATING)
         goal = NavigateToPose.Goal()
         goal.pose = pose
-        self._nav_client.send_goal_async(goal).add_done_callback(self._on_nav_accepted)
+        self._nav_client.send_goal_async(goal).add_done_callback(
+            lambda future: self._on_nav_accepted(
+                future, purpose, generation
+            )
+        )
 
-    def _pose_from(self, values):
-        """[x, y, yaw] 파라미터를 지도 좌표 자세로 바꿉니다.
+    def _map_pose(self, map_pose) -> PoseStamped:
+        """서버가 보낸 map 좌표를 Nav2 목표로 바꿉니다.
 
-        좌표가 전부 0 이면 아직 설정되지 않은 것으로 봅니다. 그대로
-        보내면 로봇이 지도 원점으로 달려갑니다.
+        좌표의 출처는 서버의 ``robot_location`` 하나입니다. 로봇은 위치를
+        저장하지 않습니다 — 양쪽이 들고 있으면 지도를 다시 그렸을 때 한쪽만
+        갱신되어 엉뚱한 곳으로 갑니다.
+
+        지도 원점(0, 0, 0)도 정상 좌표로 봅니다. 서버는 미설정을 NULL 로
+        두고 좌표 없는 위치로는 명령을 아예 발행하지 않으므로, 여기까지 온
+        0,0,0 은 "설정 안 됨"이 아니라 진짜 원점입니다.
         """
-        if values is None or len(values) < 3:
-            return None
-        x, y, yaw = values[0], values[1], values[2]
-        if x == 0.0 and y == 0.0 and yaw == 0.0:
-            return None
-
+        x, y, yaw = map_pose.x, map_pose.y, map_pose.yaw
         pose = PoseStamped()
         pose.header.frame_id = "map"
         pose.header.stamp = self.get_clock().now().to_msg()
@@ -260,46 +458,214 @@ class MissionManager(Node):
         pose.pose.orientation.w = math.cos(yaw / 2.0)
         return pose
 
-    def _on_nav_accepted(self, future):
+    def _on_nav_accepted(self, future, purpose: str, generation: int):
         handle = future.result()
+        if generation != self._nav_generation:
+            if handle.accepted:
+                handle.cancel_goal_async()
+            return
         if not handle.accepted:
             self.get_logger().error("Nav2 가 목표를 거부했습니다.")
-            self._abort()
+            self._handle_nav_failure(
+                purpose, "Nav2가 목표를 거부했습니다.", "NAVIGATION_REJECTED"
+            )
             return
-        handle.get_result_async().add_done_callback(self._on_nav_done)
+        self._nav_goal_handle = handle
+        handle.get_result_async().add_done_callback(
+            lambda result_future: self._on_nav_done(
+                result_future, purpose, generation
+            )
+        )
 
-    def _on_nav_done(self, future):
-        purpose, self._nav_purpose = self._nav_purpose, None
+    def _on_nav_done(self, future, purpose: str, generation: int):
+        if generation != self._nav_generation:
+            return
+        self._nav_goal_handle = None
+        self._nav_purpose = None
 
-        # Nav2 의 상세 실패 원인까지 구분하지 않고, 도착 실패면 임무를
-        # 접습니다. 재시도 정책은 실주행 데이터를 본 뒤 정하는 게 낫습니다.
         result = future.result()
         if result.status != 4:  # STATUS_SUCCEEDED
             self.get_logger().error(f"Nav2 이동 실패 (status={result.status})")
-            # 마중은 이동에 실패해도 무장을 유지합니다. 그 자리에서라도
-            # 사람이 보이면 인사하는 편이 아무것도 안 하는 것보다 낫습니다.
-            self._abort()
+            self._handle_nav_failure(
+                purpose,
+                f"Nav2 이동 실패(status={result.status})",
+                "NAVIGATION_FAILED",
+            )
             return
 
-        if purpose == "greet":
-            self.get_logger().info("맞이 위치 도착. 사람을 기다립니다.")
+        self._handle_nav_success(purpose)
+
+    def _handle_nav_success(self, purpose: str):
+        if purpose == NAV_SERVER:
+            session = self._navigate.active
+            if session is None:
+                # 취소된 명령의 늦은 콜백입니다. 회신할 대상이 없습니다.
+                return
+            marker_id = self._navigate_marker_id(session.destination)
+            if marker_id is None:
+                # 마커가 없는 자리입니다. Nav2 도착이 곧 도착입니다.
+                self._finish_server_navigation()
+                return
+            self.get_logger().info(
+                f"{session.destination} 근처 도착. 정밀 도킹으로 넘깁니다."
+            )
+            self._navigate.begin_docking()
+            self._start_docking(marker_id)
+            return
+
+        if purpose == NAV_ARRIVAL_GREETING:
+            result = self._arrival.greeting_reached(self._now_s())
+            self._publish_arrival_result(result)
+            session = self._arrival.active
+            self.get_logger().info("GREETING 도착. 사람을 기다립니다.")
             self._transition(MissionState.IDLE)
+            self._start_arrival_wait(session.wait_seconds)
             return
 
-        self.get_logger().info("스테이션 근처 도착. 정밀 도킹으로 넘깁니다.")
-        self._start_docking(self._active_station)
+        if purpose == NAV_ARRIVAL_HOME:
+            result = self._arrival.home_reached()
+            if result is not None:
+                self._publish_arrival_result(result)
+            self._cancel_arrival_timers()
+            self.greeting.disarm()
+            self.get_logger().info("HOME 복귀 완료.")
+            self._transition(MissionState.IDLE)
+
+    def _handle_nav_failure(self, purpose: str, error: str, code: str):
+        if purpose == NAV_SERVER:
+            self._finish_server_navigation(error=error, code=code)
+            return
+
+        if purpose == NAV_ARRIVAL_GREETING:
+            result = self._arrival.fail_current(error, code)
+            if result is not None:
+                self._publish_arrival_result(result)
+            self._transition(MissionState.IDLE)
+            self._begin_return_home("GREETING 이동 실패")
+            return
+
+        if purpose == NAV_ARRIVAL_HOME:
+            result = self._arrival.fail_current(error, code)
+            if result is not None:
+                self._publish_arrival_result(result)
+            self._cancel_arrival_timers()
+            self.greeting.disarm()
+            self._transition(MissionState.IDLE)
+
+    # --- 서버 이동 결과 ---
+
+    def _navigate_marker_id(self, destination: str):
+        """도킹이 필요한 목적지면 마커 번호, 아니면 None.
+
+        물리 장치가 있는 곳은 급수 스테이션뿐입니다. 나머지는 지도 위
+        좌표일 뿐이라 볼 마커가 없고, Nav2 의 도착 오차로 충분합니다.
+        """
+        return DOCKING_MARKERS.get(destination)
+
+    def _parked_state(self) -> MissionState:
+        """도착한 뒤 어떤 상태로 서 있을지.
+
+        급수 스테이션에 서 있는 동안은 ``SERVICING`` 입니다. 서버가
+        라즈베리에 급수·송풍·촬영을 시키는 중이고, 서버는 이 상태를 보고
+        디스플레이 표정을 매우행복으로 바꿉니다 (DEVICE-MQTT.md 7·9절).
+        로봇은 그 작업이 끝났는지 알 방법이 없어서, 다음 이동 명령이 올
+        때까지 이 상태를 유지합니다.
+        """
+        if self._navigate.parked_at == WATER_STATION:
+            return MissionState.SERVICING
+        return MissionState.IDLE
+
+    def _finish_server_navigation(self, error: str = None, code: str = None):
+        """이동 명령 하나를 끝내고 서버에 회신합니다.
+
+        ``OK`` 는 출발이 아니라 **도착(도킹 완료)** 을 뜻합니다. 서버는 이
+        회신을 받아야 다음 단계(급수·촬영·송풍)를 발행합니다. 제한시간
+        (기본 120초)을 넘겼더라도 반드시 보냅니다 — 늦은 회신이
+        ``TIMED_OUT`` 위에 덮어쓰고 체인도 이어집니다.
+
+        회신할 세션이 없어도 **상태는 반드시 되돌립니다.** 여기서 그냥
+        빠져나가면 NAVIGATING/DOCKING 에 얼어붙어 다음 명령을 전부 BUSY 로
+        거절하게 됩니다.
+        """
+        self._cancel_navigate_timeout()
+        if self._navigate.active is None:
+            # 이미 정리된 세션의 늦은 콜백입니다. 회신할 대상이 없습니다.
+            self._transition(self._parked_state())
+            return
+
+        if error is None:
+            result = self._navigate.reached()
+            self.get_logger().info(
+                f"{self._navigate.parked_at} 도착 — 서버에 OK 회신"
+            )
+        else:
+            result = self._navigate.fail_current(error, code)
+        if result is not None:
+            self._publish_navigate_result(result)
+        self._transition(self._parked_state())
+
+    def _start_navigate_timeout(self):
+        """Nav2나 도킹이 영영 돌아오지 않을 때를 대비한 마지막 보루.
+
+        결과를 못 받으면 세션이 계속 열려 있어 이후 모든 명령을 BUSY 로
+        거절합니다. 노드를 다시 띄우기 전까지 로봇이 서버 명령을 하나도
+        받지 못하는 상태가 됩니다.
+
+        서버 제한시간(기본 120초)보다 넉넉히 잡습니다. 늦은 회신도 서버가
+        받아 체인을 잇기 때문에, 여기서 먼저 끊으면 살릴 수 있는 이동을
+        버리게 됩니다. 이 값은 "정상 범위" 가 아니라 "고장" 판정선입니다.
+        """
+        self._cancel_navigate_timeout()
+        self._navigate_timeout_timer = self.create_timer(
+            float(self.get_parameter("navigate_timeout").value),
+            self._on_navigate_timeout,
+        )
+
+    def _cancel_navigate_timeout(self):
+        if self._navigate_timeout_timer is not None:
+            self._navigate_timeout_timer.cancel()
+            self._navigate_timeout_timer = None
+
+    def _on_navigate_timeout(self):
+        self._cancel_navigate_timeout()
+        if self._navigate.active is None:
+            return
+        self.get_logger().error(
+            "이동 명령이 제한시간 안에 끝나지 않았습니다. Nav2/도킹 액션이 "
+            "응답하는지 확인하세요."
+        )
+        self._cancel_active_navigation()
+        self._finish_server_navigation(
+            error="이동이 로봇 제한시간 안에 끝나지 않았습니다.",
+            code="NAVIGATION_TIMEOUT",
+        )
+
+    def _cancel_active_navigation(self):
+        self._nav_generation += 1
+        handle, self._nav_goal_handle = self._nav_goal_handle, None
+        self._nav_purpose = None
+        if handle is not None:
+            handle.cancel_goal_async()
 
     # --- 도킹 ---
 
-    def _start_docking(self, station: StationMarker):
+    def _start_docking(self, marker_id: int):
+        """마커를 보며 스테이션에 정밀하게 붙습니다.
+
+        서버 이동 명령에서만 씁니다. 도킹하는 목적지는 급수 스테이션
+        하나뿐입니다 (navigate_contract.DOCKING_MARKERS).
+        """
         if not self._dock_client.wait_for_server(timeout_sec=2.0):
             self.get_logger().error("도킹 액션 서버가 없습니다.")
-            self._abort()
+            self._finish_server_navigation(
+                error="도킹 액션 서버에 연결할 수 없습니다.",
+                code="DOCKING_UNAVAILABLE",
+            )
             return
 
         self._transition(MissionState.DOCKING)
         goal = DockToStation.Goal()
-        goal.marker_id = int(station)
+        goal.marker_id = int(marker_id)
         goal.timeout = float(self.get_parameter("docking_timeout").value)
         self._dock_client.send_goal_async(
             goal, feedback_callback=self._on_dock_feedback
@@ -318,7 +684,9 @@ class MissionManager(Node):
         handle = future.result()
         if not handle.accepted:
             self.get_logger().error("도킹 서버가 목표를 거부했습니다.")
-            self._abort()
+            self._finish_server_navigation(
+                error="도킹 서버가 목표를 거부했습니다.", code="DOCKING_REJECTED"
+            )
             return
         handle.get_result_async().add_done_callback(self._on_dock_done)
 
@@ -326,40 +694,26 @@ class MissionManager(Node):
         result = future.result().result
         if not result.success:
             self.get_logger().error(f"도킹 실패: {result.message}")
-            self._abort()
+            self._finish_server_navigation(
+                error=f"도킹 실패: {result.message}", code="DOCKING_FAILED"
+            )
             return
 
         self.get_logger().info(
             f"도킹 성공 (거리 {result.final_distance:.3f}m, "
             f"각도 {result.final_yaw_error:.1f}도)"
         )
-        self._start_service()
-
-    # --- 서비스 ---
-
-    def _start_service(self):
-        """스테이션에 급수·송풍 등을 요청하고 완료를 기다립니다."""
-        self._transition(MissionState.SERVICING)
-        self._service_pub.publish(String(data=self._active_station.name))
-
-        # TODO: 스테이션이 완료 신호를 보내면 그걸 받아 끝내도록 바꿀 것.
-        # 지금은 스테이션이 없으므로 고정 시간 대기로 둡니다.
-        duration = self.get_parameter("service_duration").value
-        self._service_timer = self.create_timer(duration, self._finish_service)
-
-    def _finish_service(self):
-        if self._service_timer is not None:
-            self._service_timer.cancel()
-            self._service_timer = None
-        self.get_logger().info(f"{self._active_station.name} 서비스 완료")
-        self._active_station = None
-        self._transition(MissionState.IDLE)
+        self._finish_server_navigation()
 
     # --- 보조 ---
 
-    def _abort(self):
-        self._active_station = None
-        self._transition(MissionState.IDLE)
+    def _publish_state(self):
+        """현재 상태를 주기적으로 다시 알립니다.
+
+        서버 처리가 멱등해서 반복 발행이 안전하고, 전이 시점의 메시지가
+        유실돼도 한 주기 안에 복구됩니다.
+        """
+        self._state_pub.publish(String(data=self.state.name))
 
     def _transition(self, new_state: MissionState):
         if new_state is self.state:
@@ -368,7 +722,7 @@ class MissionManager(Node):
             f"상태 전이: {self.state.name} -> {new_state.name}"
         )
         self.state = new_state
-        self._state_pub.publish(String(data=self.state.name))
+        self._publish_state()
 
 
 def main(args=None):
