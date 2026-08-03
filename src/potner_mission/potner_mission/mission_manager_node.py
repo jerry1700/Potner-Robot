@@ -59,7 +59,6 @@ from potner_mission.arrival_session import (
     ArrivalSessionController,
     ArrivalStage,
     DecisionKind,
-    MissionResult,
 )
 from potner_mission.greeting import GreetingPolicy
 from potner_mission.navigate_session import NavigateSessionController
@@ -142,7 +141,7 @@ class MissionManager(Node):
 
     # --- 입력 ---
 
-    def _now_s(self) -> float:
+    def _now_s(self):
         return self.get_clock().now().nanoseconds * 1e-9
 
     def _on_arrival_command(self, msg: String):
@@ -210,7 +209,7 @@ class MissionManager(Node):
                 command.home, purpose=NAV_ARRIVAL_HOME
             )
 
-    def _finish_decision(self, decision) -> bool:
+    def _finish_decision(self, decision):
         if decision.kind is DecisionKind.ACCEPTED:
             return False
         if decision.result is not None:
@@ -252,7 +251,7 @@ class MissionManager(Node):
         self._start_navigate_timeout()
         self._start_server_navigation(command)
 
-    def _ready_for_server_command(self) -> bool:
+    def _ready_for_server_command(self):
         """새 이동 명령을 받아도 되는 상태인지.
 
         스테이션에 대어 놓은 동안(``SERVICING``)도 받아야 합니다. 급수가
@@ -268,13 +267,13 @@ class MissionManager(Node):
             MissionState.SERVICING,
         )
 
-    def _publish_arrival_result(self, result: MissionResult):
+    def _publish_arrival_result(self, result):
         self._publish_result(self._arrival_result_pub, result, "귀가")
 
-    def _publish_navigate_result(self, result: MissionResult):
+    def _publish_navigate_result(self, result):
         self._publish_result(self._navigate_result_pub, result, "이동")
 
-    def _publish_result(self, publisher, result: MissionResult, label: str):
+    def _publish_result(self, publisher, result, label):
         publisher.publish(
             String(
                 data=result_envelope(
@@ -417,7 +416,7 @@ class MissionManager(Node):
             return
         self._send_nav_goal(pose, purpose=NAV_SERVER)
 
-    def _send_nav_goal(self, pose: PoseStamped, purpose: str):
+    def _send_nav_goal(self, pose, purpose):
         if not self._nav_client.wait_for_server(timeout_sec=2.0):
             self.get_logger().error("Nav2 액션 서버가 없습니다.")
             self._handle_nav_failure(
@@ -437,7 +436,7 @@ class MissionManager(Node):
             )
         )
 
-    def _map_pose(self, map_pose) -> PoseStamped:
+    def _map_pose(self, map_pose):
         """서버가 보낸 map 좌표를 Nav2 목표로 바꿉니다.
 
         좌표의 출처는 서버의 ``robot_location`` 하나입니다. 로봇은 위치를
@@ -562,7 +561,7 @@ class MissionManager(Node):
         """
         return DOCKING_MARKERS.get(destination)
 
-    def _parked_state(self) -> MissionState:
+    def _parked_state(self):
         """도착한 뒤 어떤 상태로 서 있을지.
 
         급수 스테이션에 서 있는 동안은 ``SERVICING`` 입니다. 서버가
@@ -715,7 +714,7 @@ class MissionManager(Node):
         """
         self._state_pub.publish(String(data=self.state.name))
 
-    def _transition(self, new_state: MissionState):
+    def _transition(self, new_state):
         if new_state is self.state:
             return
         self.get_logger().info(
