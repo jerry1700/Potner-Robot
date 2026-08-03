@@ -6,7 +6,17 @@
 그렇게 설계한 이유는 `docs/BACKEND.md` 5절(센서 수집)과 7절(이상 알림)에 있습니다. 두 문서가
 어긋나면 코드가 기준입니다.
 
-기준 시점: 2026년 7월 29일.
+기준 시점: 2026년 7월 30일.
+
+> **장치 담당자는 아래 문서를 먼저 보세요.** 이 문서는 두 장치의 공통 계약과 설계 근거를
+> 다루고, 아래 둘은 각 장치가 할 일만 추려 **현재 동작 상태와 남은 작업 우선순위**를 담고
+> 있습니다 (기준 2026-08-03).
+>
+> - [`DEVICE-RASPBERRY.md`](DEVICE-RASPBERRY.md) — 센서·급수·촬영·송풍·사진 업로드
+> - [`DEVICE-JETSON.md`](DEVICE-JETSON.md) — 토양수분·이동·표정·귀가·상태·배터리
+>
+> 이 문서의 12절 "알려진 공백" 과 14·15절 참고 구현은 그 뒤로 상황이 바뀐 부분이 있습니다.
+> 최신 상태는 위 두 문서를 보십시오.
 
 ---
 
@@ -114,14 +124,28 @@ pattern read  potner/device/%u/command/#
   potner/device/<device_uid>/status/heartbeat     생존 신호          파이·젯슨
   potner/device/<device_uid>/status/state         로봇 행동 상태     젯슨만
   potner/device/<device_uid>/status/battery       배터리 잔량        젯슨만
+  potner/device/<device_uid>/status/water-low     스테이션 물 부족   파이만 (18절)
+  potner/device/<device_uid>/result/water         급수 결과 회신     파이만 (16절)
+  potner/device/<device_uid>/result/capture       촬영 결과 회신     파이만 (16절)
+  potner/device/<device_uid>/result/fan           송풍 결과 회신     파이만 (16절)
+  potner/device/<device_uid>/result/navigate      이동 결과 회신     젯슨만 (16절)
   potner/device/<device_uid>/result/welcome_start 귀가 마중 도착 회신 젯슨만
-  potner/device/<device_uid>/result/welcome_cancel HOME 복귀 회신     젯슨만
+  potner/device/<device_uid>/result/welcome_cancel 귀가 취소 회신     젯슨만
 
 서버 → 장치
   potner/device/<device_uid>/command/expression   디스플레이 표정    젯슨이 구독
+  potner/device/<device_uid>/command/water        급수 명령          파이가 구독 (16절)
+  potner/device/<device_uid>/command/capture      촬영 명령          파이가 구독 (16절)
+  potner/device/<device_uid>/command/fan          송풍 명령          파이가 구독 (16절)
+  potner/device/<device_uid>/command/navigate     이동 명령          젯슨이 구독 (16절)
   potner/device/<device_uid>/command/welcome_start 귀가 마중 시작     젯슨이 구독
   potner/device/<device_uid>/command/welcome_cancel 귀가 마중 취소    젯슨이 구독
 ```
+
+**결과 회신은 반드시 `result/` 아래여야 합니다.** `command/water/result` 처럼 `command/` 아래에
+쓰면 브로커 ACL 이 장치의 `command/#` 쓰기를 막아 **조용히 버려집니다** — 발행 쪽엔 에러가 없고
+브로커 로그에도 남지 않습니다. 장치 ACL 은 `sensor/`·`status/`·`result/` 쓰기와 `command/`
+읽기입니다(3절).
 
 **같은 문자열이 네 곳에서 일치해야 합니다.**
 
@@ -442,41 +466,48 @@ band = (max − min) × 0.1          potner.alert.hysteresis-ratio
 들어가 `mosquitto_passwd`를 실행해야 합니다. 앱에 기기 연결 화면을 만들어도 이것이 해결되지
 않으면 사용자가 자기 기기를 연결할 수 없습니다. **앱 화면보다 이쪽이 선결입니다.**
 
-**급수 명령이 아직 없습니다.** 서버가 토양 수분 부족을 판정해 사용자에게 알림까지 보내지만,
-로봇에게 급수를 지시하는 경로가 없습니다. 합의된 흐름은 이렇습니다.
+**급수 흐름의 서버 쪽은 전부 붙었고, ②→③→⑤→⑦ 을 서버가 자동으로 잇습니다**
+(`AutoWateringOrchestrator`, `DEVICE_COMMAND_AUTO_WATER_ENABLED` 기본 켜짐). 수분 부족 알림이
+열리면 서버가 사람 없이 이동 → 급수 → 복귀를 순서대로 발행하고, 각 단계는 직전 명령의
+`result/...` OK 회신이 와야 이어집니다. **그래서 장치가 결과 회신을 안 보내면 체인이 그 단계에서
+멈춥니다.** 남은 것은 장치 쪽 수신 구현입니다.
 
 ```
-① 라즈베리 → 토양 수분 → 서버
+① 라즈베리 → 토양 수분 → 서버                     구현됨
 ② 서버 판정 → 사용자 알림 "흙이 말랐어요"          구현됨
-③ 서버 → 젯슨: 스테이션 이동 명령                  미구현
-④ 젯슨: NAVIGATING → DOCKING → 도착
-⑤ 서버 → 라즈베리: 급수 명령                       미구현
-⑥ 라즈베리: 급수 → 완료 보고                       미구현
-⑦ 서버 → 젯슨: 대기 장소 복귀 명령                 미구현
+③ 서버 → 젯슨: 스테이션 이동 명령                  자동 발행됨 (16절) — 젯슨 수신 미구현
+④ 젯슨: NAVIGATING → DOCKING → 도착 → 결과 회신    젯슨 미구현 ← ⑤ 가 이 회신을 기다린다
+⑤ 서버 → 라즈베리: 급수 명령                       자동 발행됨 (16절)
+⑥ 라즈베리: 급수 → 완료 보고                       구현됨 (16절) ← ⑦ 이 이 회신을 기다린다
+⑦ 서버 → 젯슨: 대기 장소 복귀 명령                 자동 발행됨 (16절) — 젯슨 수신 미구현
 ```
 
-③~⑦을 붙이려면 하드웨어팀 답이 필요합니다.
+**중재 문제는 결정으로 풀렸습니다: 모든 동작 명령은 서버를 거칩니다.** 서버가 생육 데이터
+(수분·누적 광량)로 판단해 명령을 내리고, 로봇은 받은 명령만 수행합니다. 이 결정의 로봇 쪽
+절반이 남아 있습니다 — **`mission_manager` 의 자율 임무(임계값 판단 → 스스로 이동)를 꺼야
+합니다.** 켠 채로 서버 명령을 받으면 두 주인의 명령 사이에서 왕복합니다.
 
-1. **명령 토픽과 페이로드.** `command/navigate`, `command/watering` 이름 이대로 괜찮습니까?
-   이동 명령에 목적지 이름(`STATION`/`HOME`)만으로 됩니까, 좌표가 필요합니까?
-   급수량을 서버가 정해야 합니까? **서버는 펌프 유량을 모르므로 로봇이 적정량을 정하는 쪽을
-   권합니다.**
-2. **완료·실패 보고 형식.** `status/` 아래입니까 `result/` 아래입니까? 실패 이유(물통 빔,
-   펌프 오류, 도킹 실패)를 담을 수 있습니까? **물통이 비었는지 감지할 수 있습니까?**
-3. **`commandId`를 상태 보고에 되돌려 줄 수 있습니까?** 가장 중요합니다. 없으면 서버가
-   "명령 직전의 `IDLE`"과 "스테이션 도착 후의 `IDLE`"을 구분할 수 없습니다. 상태를 계속 반복
-   발행하시기 때문에 명령 직후에도 출발 전 `IDLE`이 계속 오고, 서버가 그걸 도착으로 오해하면
-   **대기 장소에 있는 로봇에게 급수 명령을 보내 물을 바닥에 쏟습니다.** 받은 값을 그대로 실어
-   보내주시면 됩니다.
-4. **`SERVICING`이 급수인지 송풍인지 구분할 수 있습니까?** 표정은 어느 쪽이든 같지만 급수 완료
-   판정에는 구분이 필요합니다.
-5. **대기 장소를 로봇이 기억합니까?** 서버가 좌표를 줘야 하면 저장할 곳을 만들어야 합니다.
-6. **송풍은 무엇이 트리거입니까?** 습도가 높을 때라면 서버가 지금 판정할 수 있습니다.
-7. **`GREETING`은 서버가 시킵니까, 로봇이 자율로 합니까?** 자율이면 서버는 상태만 기록합니다.
+장치 쪽에 남은 구현:
 
-**스테이션이 서버에 없습니다.** 디자인에는 기기 등록 화면에 "스테이션 코드" 입력칸이 있고,
-"스테이션 물이 부족해요" · "배수트레이를 비워주세요" 알림도 있습니다. 서버에는 스테이션이라는
-개체도, 물통 수위·배수트레이 신호도 없습니다. 급수 작업과 함께 설계해야 합니다.
+1. **젯슨: `command/navigate` 수신 + `result/navigate` 반향** (16절 계약). 도착이 `OK` 회신으로
+   확인돼야 서버가 다음 명령(급수)을 이어 보낼 수 있습니다.
+2. **라즈베리: `command/fan` 수신 + `result/fan` 반향** (16절 계약). 팬 하드웨어 제어
+   (`cli.fan`)는 이미 있고 MQTT 리스너만 없습니다. **서버는 자동 말리기까지 붙었습니다** —
+   토양수분 HIGH 알림이 열리면 스테이션으로 데려가 송풍을 반복하고, 마르면 되돌립니다
+   (`AutoDryingScheduler`). 이 수신이 없으면 이동만 하고 송풍 단계에서 타임아웃으로 멈춥니다.
+3. **라즈베리: 결과 토픽 두 줄 수정** (16절 경고).
+
+`GREETING`도 서버 명령으로 결정됐습니다. GPS 전에는 앱의 디버그 버튼이
+`POST /api/v1/arrival/events`를 호출하고, 이후 Android Geofence가 같은 API를 호출합니다.
+서버는 저장된 `GREETING`/`HOME` 좌표를 `welcome_start`에 담아 젯슨에 보냅니다.
+
+**스테이션은 서버에 생겼습니다(17절).** 등록(스테이션 코드)·좌표·물 부족 알림까지 있습니다.
+배수트레이 알림은 **센서 없이 누적 급수량으로** 만들었습니다(`DRAINAGE_TRAY`). 급수마다
+`device_command.dispensed_ml` 이 쌓이므로 수위 센서를 붙이지 않았습니다 — **장치 쪽 작업이
+없습니다.** 임계값은 고정 ml 이 아니라 `recommended_watering_ml × ALERT_DRAINAGE_TRAY_WATERING_MULTIPLIER`
+(기본 8회분)입니다. 트레이는 총 배수량으로 차므로 회당 급수량 차이는 무관하지만 트레이 용량은
+화분 크기에 비례하기 때문입니다. 사용자가 앱에서 비웠음을 알리면
+(`POST /api/v1/plants/{plantId}/drainage-tray/emptied`) 그 시각이 다음 누적의 기준점이 됩니다.
 
 **장치가 필요한 자격증명이 두 개인데 전달 경로가 없습니다.** 센서용 mosquitto 계정과 사진
 업로드용 `uploadToken`입니다. 후자는 로봇 등록 응답으로 나오지만 그걸 장치에 넣는 것은 현재
@@ -485,10 +516,11 @@ band = (max − min) × 0.1          potner.alert.hysteresis-ratio
 **사용자가 `device_uid`를 알아낼 방법이 정해지지 않았습니다.** 기기 라벨 QR, 본체 인쇄,
 BLE 페어링 중 하나여야 합니다. 블루투스는 서버 작업 범위가 아닙니다.
 
-**삭제 API가 없습니다.** `DELETE`는 배정 해제 하나뿐입니다. 게다가 `sensor_reading`이
-`robot_id`와 `source_device_id`를 RESTRICT로 참조하므로, **한 번이라도 측정값을 보낸 로봇은
-그냥 지워지지 않습니다.** 생성 컬럼 때문에 CASCADE로 바꿀 수도 없습니다(V10 주석 참고).
-제대로 만들려면 "측정값을 어떻게 할 것인가"를 먼저 정해야 하는 설계 결정입니다.
+**기기 해제는 생겼습니다.** `DELETE /api/v1/robots/{robotId}` 가 로봇·하위 장치·활성 배정을
+함께 소프트 해제합니다(V25). 측정 이력은 원래 식물에 남고, 해제된 `device_uid` 는 다른 계정이
+새로 등록할 수 있습니다. **단 브로커 계정은 남습니다** — 소유권을 넘길 때는
+`mosquitto_passwd` 재발급이 별도로 필요합니다. 안 하면 이전 주인이 새 주인의 토픽에 발행할
+수 있습니다.
 
 **앱에 기기 등록 화면이 없습니다.** 서버 API는 완비되어 있고 앱이 호출하지 않습니다.
 
@@ -498,8 +530,12 @@ BLE 페어링 중 하나여야 합니다. 블루투스는 서버 작업 범위�
 
 ### 등록 초기화
 
-리허설을 반복하거나 기기 연결 장면을 라이브로 보여주려면 기존 등록을 지워야 합니다. 삭제 API가
-없으므로 SQL로 합니다. 계정과 식물은 남기고 기기 등록만 지웁니다.
+리허설을 반복하거나 기기 연결 장면을 라이브로 보여주려면 기존 등록을 풀어야 합니다.
+**`DELETE /api/v1/robots/{robotId}` 한 번이면 됩니다** — 로봇·하위 장치·배정이 함께 해제되고
+같은 코드로 즉시 재등록할 수 있습니다. SQL 이 필요 없습니다.
+
+아래 SQL 은 측정 이력·알림까지 완전히 지우고 싶을 때(활성 알림이 남아 있으면 첫 푸시가 안
+나가는 경우 등)만 쓰세요. 계정과 식물은 남기고 기기 쪽만 지웁니다.
 
 RESTRICT 때문에 **순서가 중요합니다.** 안쪽부터 지워야 합니다.
 
@@ -770,3 +806,193 @@ class JetsonBridge:
 
 배터리와 상태는 성공해도 서버 로그에 남지 않습니다(10절). 도착하는지는
 `GET /api/v1/plants/{plantId}/devices` 응답의 `batteryMeasuredAt`·`currentState`로 확인하세요.
+
+---
+
+## 16. 급수·촬영 명령과 결과 — 서버 ↔ 라즈베리
+
+서버가 명령을 내리고 라즈베리가 결과를 회신하는 첫 양방향 경로입니다. 계약은 라즈베리 쪽
+구현(`src/mqtt/water_command.py`, `capture_command.py`)을 서버가 따라간 것이므로, 장치 쪽은
+**결과 토픽만 고치면** 지금 코드 그대로 붙습니다.
+
+```
+서버 → 파이   potner/device/<device_uid>/command/water     {"ml": 350.00, "requestId": "<uuid>"}
+파이 → 서버   potner/device/<device_uid>/result/water      아래 참조
+서버 → 파이   potner/device/<device_uid>/command/capture   {"requestId": "<uuid>"}
+파이 → 서버   potner/device/<device_uid>/result/capture    아래 참조
+```
+
+**⚠ 라즈베리 설정 수정이 필요합니다.** 현재 `config/raspberry_pi.yaml` 의 결과 토픽이
+`command/water/result` 인데, 브로커 ACL 이 장치의 `command/#` 쓰기를 막아 **회신이 조용히
+버려집니다.** 두 줄을 바꾸세요.
+
+```yaml
+water_result_topic:   potner/device/raspberry-01/result/water
+capture_result_topic: potner/device/raspberry-01/result/capture
+```
+
+### 결과 페이로드
+
+```json
+{
+  "messageId": "<uuid, 회신마다 새로>",
+  "deviceId": "raspberry-01",
+  "requestId": "<명령에서 받은 값 그대로>",
+  "status": "OK",
+  "requestedMl": 350.0,
+  "dispensedMl": 348.5,
+  "durationSec": 13.9,
+  "capped": false,
+  "measuredAt": "2026-07-30T06:01:47Z"
+}
+```
+
+| status | 뜻 | 서버 처리 |
+|---|---|---|
+| `OK` | 수행 완료 | `dispensedMl` 을 급수 이력에 기록. 일기의 급수량이 이 값의 합이다 |
+| `ERROR` | 실패. `error`(문구)와 촬영은 `code` 도 실림 | 사유를 이력에 기록 |
+| `BUSY` | 앞선 작업 중이라 거부 | 실패와 구분해 기록. 잠시 뒤 다시 보내면 된다 |
+
+`requestId` 반향이 전부입니다. 서버는 이 값으로 어느 명령의 결과인지 대조하므로, 받은 값을
+그대로 되돌려야 합니다. `dispensedMl` 은 요청량과 다를 수 있습니다(펌프 상한 도달 등) —
+실제로 나간 양을 보내야 일기가 맞습니다.
+
+### 이동 명령 — 서버 → 젯슨 (수신 구현 필요)
+
+모든 동작 명령이 서버를 거치기로 결정되면서 이동도 이 계약을 씁니다. **젯슨 브릿지가
+`command/navigate` 를 구독하고 `result/navigate` 로 반향하는 구현이 필요합니다** — 현재
+브릿지는 `command/expression` 만 처리합니다.
+
+```
+서버 → 젯슨   potner/device/<device_uid>/command/navigate
+{"destination": "WATER_STATION", "x": 1.250, "y": -0.480, "yaw": 1.5708, "requestId": "<uuid>"}
+
+젯슨 → 서버   potner/device/<device_uid>/result/navigate
+{"messageId": "<uuid>", "deviceId": "jetson-01", "requestId": "<그대로 반향>",
+ "status": "OK", "measuredAt": "..."}
+```
+
+- **좌표를 그대로 쓰세요.** map 프레임(m, rad)이며 출처는 서버의 위치 저장소(17절)입니다.
+  로봇 파라미터의 `station_poses` 는 쓰지 않습니다 — 좌표의 출처가 둘이 되면 어긋납니다.
+- `destination` 은 로그와 상태 보고용 이름입니다(WATER_STATION/HOME/SUNLIGHT/GREETING).
+- `OK` 는 **도착(도킹 완료)** 을 뜻합니다. 이 회신이 와야 서버가 다음 명령(급수 등)을 이어
+  보냅니다. 실패는 `ERROR` + `error` 문구(예: DOCKING_FAILED, NAVIGATION_FAILED), 이동 중
+  새 명령은 `BUSY` 입니다.
+- 자율 임무는 꺼야 합니다(12절). 서버 명령만이 이동의 트리거입니다.
+
+### 귀가 마중 명령 — 서버 → 젯슨
+
+GPS 전에는 앱의 디버그 버튼, GPS 적용 뒤에는 Android Geofence가 같은 API와 MQTT 계약을
+사용합니다. `requestId`는 `eventId`와 같고 QoS 1 중복 수신에도 같은 이동을 다시 시작하지
+않아야 합니다.
+
+```
+서버 → 젯슨   potner/device/<device_uid>/command/welcome_start
+{"eventId":"<uuid>","visitId":"<uuid>","requestId":"<eventId와 같음>",
+ "destination":"GREETING","x":1.25,"y":-0.48,"yaw":1.5708,
+ "returnDestination":"HOME","returnX":0.10,"returnY":0.20,"returnYaw":0.0,
+ "waitSeconds":120,"totalTimeoutSeconds":300,"publishedAt":"..."}
+
+젯슨 → 서버   potner/device/<device_uid>/result/welcome_start
+{"messageId":"<새 uuid>","deviceId":"jetson-01","requestId":"<그대로 반향>",
+ "status":"OK"}
+```
+
+`welcome_start`의 `OK`는 **GREETING 좌표 도착**을 뜻합니다. 젯슨은 도착 뒤 사람을 인식하면
+인사하고 HOME으로 복귀합니다. 사람이 보이지 않으면 `waitSeconds` 뒤 복귀하고,
+`totalTimeoutSeconds`를 넘기면 기다리지 않고 HOME 복귀를 시작합니다.
+
+```
+서버 → 젯슨   potner/device/<device_uid>/command/welcome_cancel
+{"eventId":"<새 uuid>","visitId":"<start와 같음>","requestId":"<eventId와 같음>",
+ "returnDestination":"HOME","returnX":0.10,"returnY":0.20,"returnYaw":0.0,
+ "publishedAt":"..."}
+
+젯슨 → 서버   potner/device/<device_uid>/result/welcome_cancel
+{"messageId":"<새 uuid>","deviceId":"jetson-01","requestId":"<그대로 반향>",
+ "status":"OK"}
+```
+
+취소 `OK`는 **HOME 좌표 도착**을 뜻합니다. 이동 실패는 `ERROR`, 다른 방문이나 다른 임무를
+수행 중이라 시작하지 못하면 `BUSY`입니다. 실패에는 `error`와 기계 판독용 `code`를 함께
+보낼 수 있습니다.
+
+### 송풍 명령 — 서버 → 라즈베리 (수신 구현 필요)
+
+토양 수분 과다를 말리는 명령입니다. 팬 하드웨어 제어(`cli.fan`)는 이미 있으므로
+급수 수신기와 같은 모양의 MQTT 리스너만 붙이면 됩니다.
+
+```
+서버 → 파이   potner/device/<device_uid>/command/fan
+{"seconds": 30, "requestId": "<uuid>"}
+
+파이 → 서버   potner/device/<device_uid>/result/fan
+{"messageId": "<uuid>", "deviceId": "raspberry-01", "requestId": "<그대로 반향>",
+ "status": "OK", "measuredAt": "..."}
+```
+
+가동 시간을 서버가 정합니다. 말리기는 "짧은 가동 → 수분 재측정 → 필요하면 재가동" 의
+반복이라 한 번에 오래 돌리지 않습니다 — 과건조는 되돌릴 수 없습니다.
+
+### 서버 쪽 동작
+
+- 발행 주체: `POST /api/v1/plants/{plantId}/device-commands`
+  `{"type":"WATER"|"CAPTURE"|"FAN"|"NAVIGATE", "destination"?: ..., "seconds"?: ...}`.
+  급수량은 요청이 아니라 식물의 적용 생육 기준(`recommendedWateringMl`)에서 나옵니다.
+  NAVIGATE 는 목적지의 지도 좌표(17절)가 입력되어 있어야 발행됩니다.
+- 같은 식물·같은 종류가 회신 대기 중이면 409 로 거절합니다.
+- 회신이 120초(기본) 안에 없으면 서버가 `TIMED_OUT` 으로 끊습니다. 늦게 온 회신은 그 위에
+  덮어씁니다 — 타임아웃은 추정이고 회신은 물리적 사실입니다.
+- 회신 반영 로그: `Device command result applied: requestId=..., status=..., dispensedMl=...`
+  실패 유형별로 `unknown request` / `deviceId mismatch` / `already applied` 가 따로 남습니다.
+
+---
+
+## 17. 위치 등록 — 스테이션 코드와 지도 좌표
+
+로봇이 오가는 위치 4종을 서버가 저장합니다. 물리 장치는 급수 스테이션뿐이라 그것만 코드를
+갖고, 나머지는 SLAM 지도 위 좌표입니다.
+
+| type | 무엇 | stationCode |
+|---|---|---|
+| `WATER_STATION` | 급수 스테이션 | 필수. 전역 UNIQUE, 형식은 device_uid 와 동일 |
+| `HOME` | 대기 장소(그늘) | 없음 |
+| `SUNLIGHT` | 햇빛 자리 | 없음 |
+| `GREETING` | 마중 지점 | 없음 |
+
+```
+POST /api/v1/robots/{robotId}/locations              등록 (앱의 "스테이션 코드" 입력이 여기)
+GET  /api/v1/robots/{robotId}/locations              목록
+PUT  /api/v1/robots/{robotId}/locations/{type}/pose  좌표 입력 {"x","y","yaw"}
+```
+
+좌표는 등록과 **분리**되어 있습니다. 코드는 사용자가 앱에서 넣고, 좌표는 지도를 만든 설치자가
+RViz 에서 읽어 PUT 으로 넣습니다. 좌표가 없는 동안 `poseConfigured=false` 이며 그 위치로는
+로봇을 보낼 수 없습니다. **지도를 다시 그리면 모든 좌표를 다시 넣어야 합니다** — 원점이 바뀌어
+이전 좌표는 엉뚱한 곳을 가리킵니다.
+
+미설정은 0,0,0 이 아니라 NULL 입니다. 0,0,0 은 지도 원점이라는 실제 좌표라서, 로봇 쪽 규약
+("전부 0 이면 미설정")과 다릅니다. 서버에서 좌표를 받아 쓸 때 이 차이를 옮기지 마세요.
+
+---
+
+## 18. 스테이션 물 부족 보고 — 파이 → 서버
+
+스테이션 수위 센서를 읽는 라즈베리가 보냅니다. 이 절의 계약은 서버가 정의했고 장치가 따라
+구현합니다 — 하트비트·배터리와 같은 방식입니다.
+
+```
+potner/device/<device_uid>/status/water-low
+{"messageId": "<uuid>", "deviceId": "raspberry-01", "waterLow": true, "measuredAt": "2026-07-30T06:00:00Z"}
+```
+
+- **불리언입니다.** 수위 퍼센트가 아닙니다. 임계값 판정은 센서를 아는 장치가 합니다.
+- **`waterLow: false` 도 보내야 합니다.** 물을 보충하면 false 를 보내야 서버 플래그가 내려가고,
+  그래야 다음 부족 때 알림이 다시 나갑니다. 상태가 바뀔 때와 주기 보고 어느 쪽이든 됩니다 —
+  서버 처리가 멱등해서 같은 상태를 반복 보고해도 알림이 쏟아지지 않습니다.
+- 사용자 푸시는 부족으로 **바뀔 때 한 번만** 나갑니다. 로봇에 식물이 배정되어 있으면 앱 알림
+  목록(`GET /api/v1/alerts`)에도 남습니다 — `metricType: STATION_WATER_LOW`, 측정값·기준은
+  null 입니다. 배정 전에는 알림을 매달 식물이 없어 푸시만 나갑니다.
+- 로봇에 급수 스테이션이 등록(17절)되어 있어야 합니다. 없으면 서버 로그에
+  `the robot has no water station registered` 로 버려집니다 — "알림이 왜 안 오지" 는 이것부터
+  확인하세요.
