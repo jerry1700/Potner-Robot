@@ -7,7 +7,6 @@
 
 from __future__ import annotations
 
-import pytest
 
 from potner_llm.client import ChatMessage
 from potner_llm.context_builder import (
