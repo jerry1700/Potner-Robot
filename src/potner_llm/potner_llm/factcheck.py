@@ -105,9 +105,13 @@ def snapshot_from_status(status: PlantStatus) -> SensorSnapshot:
 # 단위가 붙은 숫자만 주장으로 본다. 단위 없는 숫자("3문장", "이틀")는 센서와
 # 무관한 경우가 대부분이라 검사하지 않는다 (오탐 방지).
 # '도'는 "5분 정도"류 오탐을 막기 위해 숫자에 바로 붙은 경우만 인정한다.
+# 부호: '영하'와 '-'를 인정한다 — 실측이 영하일 때 정답("영하 5도")이
+# +5로 파싱되어 오탐 기각되는 것을 막는다. '-'는 직전이 숫자·점이 아닐
+# 때만 부호로 본다 ("50-60%" 같은 범위 표현을 음수로 오독하지 않도록).
 _NUMBER_CLAIM = re.compile(
-    r"(?P<value>\d+(?:\.\d+)?)\s*(?P<unit>%|퍼센트|°C|℃|lux|룩스|럭스|ppm)"
-    r"|(?P<value2>\d+(?:\.\d+)?)(?P<unit2>도)"
+    r"(?P<sign>영하\s*|(?<![\d.])-)?"
+    r"(?:(?P<value>\d+(?:\.\d+)?)\s*(?P<unit>%|퍼센트|°C|℃|lux|룩스|럭스|ppm)"
+    r"|(?P<value2>\d+(?:\.\d+)?)(?P<unit2>도))"
 )
 
 _UNIT_TO_METRIC = {
@@ -215,6 +219,8 @@ def _check_numeric_claims(
         raw_value = match.group("value") or match.group("value2")
         unit = match.group("unit") or match.group("unit2")
         value = float(raw_value)
+        if match.group("sign"):
+            value = -value
         metric = _UNIT_TO_METRIC[unit]
         checked += 1
 
