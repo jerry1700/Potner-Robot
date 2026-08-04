@@ -1164,6 +1164,111 @@ async function getCurrentWeather(
   }
 }
 
+// ================================================================== 웹 지식 검색 (위키백과)
+
+/** 검색 결과가 곧 모델 입력 토큰이라 요약 길이·건수를 소스 단계에서 자른다. */
+const WIKI_EXTRACT_MAX_CHARS = 500;
+const WIKI_MAX_RESULTS = 2;
+
+interface WikiPage {
+  title?: unknown;
+  extract?: unknown;
+  index?: unknown;
+}
+
+async function searchWebKnowledge(
+  input: Record<string, unknown>,
+): Promise<Record<string, unknown>> {
+  const query = asString(input.query)?.trim();
+  if (!query) return { error: '검색어가 비어 있습니다' };
+
+  const url =
+    'https://ko.wikipedia.org/w/api.php' +
+    `?action=query&generator=search&gsrsearch=${encodeURIComponent(query)}` +
+    `&gsrlimit=${WIKI_MAX_RESULTS}&prop=extracts&exintro=1&explaintext=1&format=json`;
+
+  try {
+    const response = await fetch(url, {
+      signal: AbortSignal.timeout(10_000),
+      headers: { accept: 'application/json' },
+      cache: 'no-store',
+    });
+    if (!response.ok) {
+      return { error: '검색 결과를 가져오지 못했습니다', query, status: response.status };
+    }
+
+    const data = (await response.json()) as { query?: { pages?: Record<string, WikiPage> } };
+    const results = Object.values(data.query?.pages ?? {})
+      .sort((a, b) => (asNumber(a.index) ?? 99) - (asNumber(b.index) ?? 99))
+      .map((page) => ({
+        title: asString(page.title) ?? '',
+        summary: (asString(page.extract) ?? '').trim().slice(0, WIKI_EXTRACT_MAX_CHARS),
+      }))
+      .filter((entry) => entry.summary);
+
+    if (results.length === 0) {
+      return { source: '위키백과', query, results: [], note: '관련 문서를 찾지 못했습니다' };
+    }
+    return { source: '위키백과', query, results };
+  } catch (error) {
+    const aborted =
+      error instanceof Error && (error.name === 'TimeoutError' || error.name === 'AbortError');
+    return {
+      error: aborted ? '검색이 너무 오래 걸렸습니다' : '검색 결과를 가져오지 못했습니다',
+      query,
+    };
+  }
+}
+
+// ================================================================== 뉴스 헤드라인
+
+const NEWS_RSS_URL = 'https://news.google.com/rss?hl=ko&gl=KR&ceid=KR:ko';
+const NEWS_MAX_HEADLINES = 5;
+
+/** RSS는 XML 파서 의존성 없이 item/title/source만 뽑는다 (헤드라인 용도로 충분). */
+function decodeXmlText(text: string): string {
+  return text
+    .replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, '$1')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;|&apos;/g, "'")
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&amp;/g, '&')
+    .trim();
+}
+
+async function getNews(): Promise<Record<string, unknown>> {
+  try {
+    const response = await fetch(NEWS_RSS_URL, {
+      signal: AbortSignal.timeout(10_000),
+      headers: { accept: 'application/rss+xml' },
+      cache: 'no-store',
+    });
+    if (!response.ok) {
+      return { error: '뉴스를 가져오지 못했습니다', status: response.status };
+    }
+
+    const xml = await response.text();
+    const headlines: Array<{ title: string; source: string }> = [];
+    for (const match of xml.matchAll(/<item>([\s\S]*?)<\/item>/g)) {
+      const item = match[1];
+      const title = decodeXmlText(/<title>([\s\S]*?)<\/title>/.exec(item)?.[1] ?? '');
+      const source = decodeXmlText(/<source[^>]*>([\s\S]*?)<\/source>/.exec(item)?.[1] ?? '');
+      if (title) headlines.push({ title, source });
+      if (headlines.length >= NEWS_MAX_HEADLINES) break;
+    }
+
+    if (headlines.length === 0) {
+      return { error: '뉴스를 가져오지 못했습니다', reason: '응답 형식이 예상과 다릅니다' };
+    }
+    return { source: '구글 뉴스', headlines };
+  } catch (error) {
+    const aborted =
+      error instanceof Error && (error.name === 'TimeoutError' || error.name === 'AbortError');
+    return { error: aborted ? '뉴스를 가져오는 데 시간이 너무 오래 걸렸습니다' : '뉴스를 가져오지 못했습니다' };
+  }
+}
+
 // ================================================================== 디스패치
 
 /**
@@ -1189,6 +1294,10 @@ export async function runTool(
         return recommendPlant(args);
       case 'get_current_weather':
         return await getCurrentWeather(args, context);
+      case 'search_web_knowledge':
+        return await searchWebKnowledge(args);
+      case 'get_news':
+        return await getNews();
       case 'get_plant_sensor_status':
         return getPlantSensorStatus(context);
       default:

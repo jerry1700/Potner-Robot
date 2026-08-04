@@ -10,7 +10,7 @@
 
 | | potner (기본) | webchat (`LLM_BACKEND=webchat`) |
 |---|---|---|
-| 두뇌 | GMS gpt-4.1-nano + potner_llm DialogueService | plant-robot-chat의 초록이 (GMS Claude) |
+| 두뇌 | GMS claude-opus-4-8 + potner_llm DialogueService (2026-08-04 nano→opus 전환) | plant-robot-chat의 초록이 (GMS Claude) |
 | 페르소나 | 초록이 (스킨답서스, 다정하고 명랑한 반말) | 웹 챗의 시스템 프롬프트 |
 | 형식 제한 | **3문장 / 120자 이내**, 모르면 모른다고 답함 | 웹 챗 정책 |
 | 사실성 검증 | factcheck + validator 통과해야 함 | 없음 (웹 챗 신뢰) |
