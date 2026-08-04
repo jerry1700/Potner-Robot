@@ -26,6 +26,7 @@ from .sensor_provider import SensorDataProvider, create_sensor_provider
 from .status import MetricLevel, PlantStatus
 from .templates import render_briefing, render_diary, render_report
 from .tools import TOOL_DEFINITIONS, ToolHub
+from .web_provider import WebProvider, create_web_provider
 
 __all__ = [
     "AnthropicLlmClient",
@@ -46,10 +47,12 @@ __all__ = [
     "SensorDataProvider",
     "TOOL_DEFINITIONS",
     "ToolHub",
+    "WebProvider",
     "briefing_user_prompt",
     "create_conversation_backend",
     "create_llm_client",
     "create_sensor_provider",
+    "create_web_provider",
     "describe_llm",
     "diary_system_prompt",
     "diary_user_prompt",

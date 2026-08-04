@@ -38,6 +38,16 @@ conversation:
   base_url: ""              # backend=http일 때 예: http://localhost:8080/api
   timeout_seconds: 10
 
+# 웹 조회 — LLM이 "내일 날씨 어때?"(Open-Meteo), "잎이 왜 노래져?"(위키백과),
+# "요즘 뉴스 뭐 있어?"(Google News RSS)에 실제 웹 정보로 답하게 한다.
+# 전부 키가 필요 없는 공개 API. enabled: false면 툴이 비활성 안내로 답한다.
+web:
+  enabled: true
+  latitude: 35.09     # 로봇 위치 (부산 강서구 녹산) — 시연 장소에 맞게 조정
+  longitude: 128.85
+  timeout_seconds: 8
+  news_limit: 5
+
 # 센서 조회 — LLM이 "지금 온도/습도 어때?" 같은 질문에 실측값으로 답하게 한다.
 # 기본은 none(연동 안 함 → 호출부가 sensors.json 파일 기반 데모로 폴백).
 # 온습도는 라즈베리 스테이션(DHT11)만 재고 로봇엔 센서가 없으므로, 서버의

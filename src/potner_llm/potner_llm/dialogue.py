@@ -23,6 +23,7 @@ from .prompts import (
 from .status import PlantStatus
 from .templates import render_briefing, render_diary, render_report
 from .tools import ToolHub
+from .web_provider import create_web_provider
 
 logger = logging.getLogger(__name__)
 
@@ -68,6 +69,10 @@ class DialogueService:
         )
         self._backend = conversation_backend
         self._session_id = session_id
+        # 웹 조회(날씨·지식·뉴스)는 config의 web: 섹션으로 켠다. 여기서 한 번
+        # 만들어 두면 호출부(cli.py/app.py) 수정 없이 모든 대화에 적용되고,
+        # provider의 최근 성공값 캐시도 대화 간에 유지된다.
+        self._web = create_web_provider(config)
         self._history: list[ChatMessage] = (
             self._restore_history() if self._backend is not None else []
         )
@@ -135,7 +140,9 @@ class DialogueService:
 
     def chat_once(self, user_text: str) -> str:
         status = self._get_status()
-        tools = ToolHub(get_status=self._get_status, event_store=self.event_store)
+        tools = ToolHub(
+            get_status=self._get_status, event_store=self.event_store, web=self._web
+        )
         user_message = ChatMessage(role="user", content=user_text)
 
         if self.llm.available():
