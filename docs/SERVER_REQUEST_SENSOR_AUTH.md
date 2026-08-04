@@ -1,5 +1,21 @@
 # 서버 팀 요청 — 로봇이 센서 조회 API를 부를 인증 경로 추가
 
+## ✅ 확정·구현됨 (2026-08-04)
+
+요청대로 구현이 완료됐다 — `Server-feature/device-sensor-auth` 브랜치
+(커밋 b675056·6ced0e4·f970c95, 원격 푸시됨). 아래 두 미확정 항목의 답:
+
+1. **토큰: 사진 업로드 토큰 재사용.** `.env`의 `POTNER_UPLOAD_TOKEN` 값을
+   그대로 쓴다 (스키마 변경·신규 발급 API 없음).
+2. **경로: 제안 그대로** `GET /api/v1/device/sensors/current`,
+   헤더 `X-Device-Token`. 오류 계약: 토큰 누락/오류 → 401
+   `INVALID_DEVICE_TOKEN`, 활성 배정 없음 → 404 `PLANT_ASSIGNMENT_NOT_FOUND`.
+
+운영 반영 시점: Server-develop 머지 후 **Server-master 머지 + Jenkins 배포**
+까지 가야 운영 서버에 열린다(Jenkins 배포 대상은 Server-master뿐). 배포되면
+`LLM_SENSOR_INTEGRATION_PLAN.md`의 전환 절차대로 config만 바꾸면 된다.
+계약 상세는 서버 트리 `docs/DEVICE-JETSON.md` 11절.
+
 ## 배경
 
 로봇(젯슨)에서 음성/텍스트로 대화하는 LLM이 "지금 온도/습도 어때?" 같은
