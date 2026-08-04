@@ -337,6 +337,9 @@ def test_anthropic_tool_definitions_shape():
         "get_plant_status",
         "get_recent_events",
         "get_sensor_data",
+        "get_weather",
+        "search_plant_knowledge",
+        "get_news",
     }
     for d in defs:
         assert set(d) == {"name", "description", "input_schema"}
