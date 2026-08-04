@@ -51,6 +51,21 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
 ]
 
 
+def anthropic_tool_definitions() -> list[dict[str, Any]]:
+    """TOOL_DEFINITIONS(OpenAI function 스키마)를 Anthropic Messages 형식으로 변환한다.
+
+    원본은 OpenAI 형식 하나만 유지한다 — 두 벌을 손으로 관리하면 반드시 어긋난다.
+    """
+    return [
+        {
+            "name": t["function"]["name"],
+            "description": t["function"]["description"],
+            "input_schema": t["function"]["parameters"],
+        }
+        for t in TOOL_DEFINITIONS
+    ]
+
+
 class ToolHub:
     def __init__(
         self,

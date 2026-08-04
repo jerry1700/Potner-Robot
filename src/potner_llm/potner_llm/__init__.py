@@ -1,4 +1,10 @@
-from .client import ChatMessage, LlmClient, create_llm_client, describe_llm
+from .client import (
+    AnthropicLlmClient,
+    ChatMessage,
+    LlmClient,
+    create_llm_client,
+    describe_llm,
+)
 from .context_builder import ContextBuilder, ConversationContext, trim_history
 from .conversation_backend import (
     ConversationBackend,
@@ -22,6 +28,7 @@ from .templates import render_briefing, render_diary, render_report
 from .tools import TOOL_DEFINITIONS, ToolHub
 
 __all__ = [
+    "AnthropicLlmClient",
     "ChatMessage",
     "ContextBuilder",
     "ConversationBackend",

@@ -10,6 +10,8 @@ import urllib.request
 from dataclasses import dataclass
 from typing import Any, Optional
 
+import requests
+
 from .exceptions import (
     LlmApiError,
     LlmAuthError,
@@ -19,9 +21,11 @@ from .exceptions import (
     LlmTimeoutError,
 )
 from .prompts import SYSTEM_PLANT
-from .tools import TOOL_DEFINITIONS, ToolHub
+from .tools import TOOL_DEFINITIONS, ToolHub, anthropic_tool_definitions
 
 GMS_OPENAI_BASE_URL = "https://gms.ssafy.io/gmsapi/api.openai.com/v1"
+GMS_ANTHROPIC_BASE_URL = "https://gms.ssafy.io/gmsapi/api.anthropic.com"
+ANTHROPIC_VERSION = "2023-06-01"
 
 # 429(rate limit)/5xx(서버 오류)는 재시도하면 성공할 가능성이 있는 오류.
 # 401/403(인증) 등은 재시도해도 결과가 같으므로 제외.
@@ -259,6 +263,299 @@ class LlmClient:
             return data
 
 
+class AnthropicLlmClient(LlmClient):
+    """Anthropic Messages API (+ tool use), GMS Anthropic 프록시 경유.
+
+    GMS 프록시 실측 제약 (plant-robot-chat에서 검증, docs 참고):
+    - 비스트리밍 응답은 바디 앞부분이 유실된다 → 모든 호출을 SSE 스트리밍으로 받는다.
+    - temperature/top_p/top_k를 보내면 400 → 보내지 않는다 (인자는 호환용으로 받고 무시).
+    - 인증은 x-api-key 헤더 (Authorization: Bearer는 401).
+    - 스트리밍은 stdlib urllib로는 곤란해서 requests를 쓴다 (speech.py와 동일 결정).
+    """
+
+    def complete(
+        self,
+        user_prompt: str,
+        *,
+        system: str = SYSTEM_PLANT,
+        temperature: float = 0.7,
+    ) -> Optional[str]:
+        del temperature  # GMS Anthropic 프록시는 temperature를 거부한다(400)
+        if not self.available():
+            return None
+        result = self._post_messages(
+            [{"role": "user", "content": user_prompt}], system=system, tools=None
+        )
+        return result["text"].strip()
+
+    def chat_with_tools(
+        self,
+        history: list[ChatMessage],
+        tools: ToolHub,
+        *,
+        system: str = SYSTEM_PLANT,
+        max_tool_rounds: int = 3,
+        temperature: float = 0.7,
+    ) -> str:
+        del temperature  # GMS Anthropic 프록시는 temperature를 거부한다(400)
+        if not self.available():
+            raise RuntimeError("LLM unavailable - use template/offline chat fallback")
+
+        messages = _to_anthropic_messages(history)
+        tool_defs = anthropic_tool_definitions()
+
+        for _ in range(max_tool_rounds + 1):
+            result = self._post_messages(messages, system=system, tools=tool_defs)
+            if result["stop_reason"] != "tool_use" or not result["tool_uses"]:
+                return result["text"].strip()
+
+            messages.append({"role": "assistant", "content": result["content"]})
+            result_blocks = []
+            for use in result["tool_uses"]:
+                out = tools.call(use["name"], use["input"])
+                result_blocks.append(
+                    {
+                        "type": "tool_result",
+                        "tool_use_id": use["id"],
+                        "content": json.dumps(out, ensure_ascii=False),
+                    }
+                )
+            messages.append({"role": "user", "content": result_blocks})
+
+        return "지금은 생각이 길어져서, 나중에 다시 물어봐 줄래?"
+
+    def _post_messages(
+        self,
+        messages: list[dict[str, Any]],
+        *,
+        system: str,
+        tools: Optional[list[dict[str, Any]]],
+    ) -> dict[str, Any]:
+        url = self.base_url.rstrip("/") + "/v1/messages"
+        body: dict[str, Any] = {
+            "model": self.model,
+            "max_tokens": self.max_tokens,
+            "system": system,
+            "messages": messages,
+            "stream": True,
+        }
+        if tools:
+            body["tools"] = tools
+        headers = {
+            "Content-Type": "application/json",
+            "x-api-key": self.api_key,
+            "anthropic-version": ANTHROPIC_VERSION,
+        }
+
+        attempt = 0
+        while True:
+            try:
+                resp = requests.post(
+                    url,
+                    json=body,
+                    headers=headers,
+                    stream=True,
+                    timeout=self.request_timeout_seconds,
+                )
+            except requests.exceptions.Timeout as exc:
+                if attempt < self.max_retries:
+                    attempt = self._wait_retry(attempt, f"timeout: {exc}")
+                    continue
+                logger.error("LLM(Anthropic) timeout (giving up)")
+                raise LlmTimeoutError(
+                    f"LLM timeout after {self.request_timeout_seconds}s"
+                ) from exc
+            except requests.exceptions.RequestException as exc:
+                if attempt < self.max_retries:
+                    attempt = self._wait_retry(attempt, f"connection error: {exc}")
+                    continue
+                logger.error("LLM(Anthropic) connection error (giving up): %s", exc)
+                raise LlmConnectionError(f"LLM connection error: {exc}") from exc
+
+            try:
+                if resp.status_code != 200:
+                    detail = resp.text[:300]
+                    if resp.status_code in RETRYABLE_HTTP_STATUS and attempt < self.max_retries:
+                        attempt = self._wait_retry(attempt, f"HTTP {resp.status_code}")
+                        continue
+                    logger.error("LLM(Anthropic) HTTP %d (giving up): %s", resp.status_code, detail)
+                    if resp.status_code in {401, 403}:
+                        raise LlmAuthError(
+                            f"LLM auth failed (HTTP {resp.status_code}): {detail}"
+                        )
+                    if resp.status_code == 429:
+                        raise LlmRateLimitError(f"LLM rate limited: {detail}")
+                    raise LlmApiError(resp.status_code, detail)
+                return self._consume_stream(resp)
+            except requests.exceptions.Timeout as exc:
+                if attempt < self.max_retries:
+                    attempt = self._wait_retry(attempt, f"read timeout: {exc}")
+                    continue
+                logger.error("LLM(Anthropic) read timeout (giving up)")
+                raise LlmTimeoutError(
+                    f"LLM timeout after {self.request_timeout_seconds}s"
+                ) from exc
+            except requests.exceptions.RequestException as exc:
+                # 스트림 소비 중 끊김(ChunkedEncodingError 등) — 전체 호출을 재시도한다.
+                if attempt < self.max_retries:
+                    attempt = self._wait_retry(attempt, f"stream error: {exc}")
+                    continue
+                logger.error("LLM(Anthropic) stream error (giving up): %s", exc)
+                raise LlmConnectionError(f"LLM stream error: {exc}") from exc
+            finally:
+                resp.close()
+
+    def _wait_retry(self, attempt: int, reason: str) -> int:
+        delay = self.retry_backoff_seconds * (2**attempt)
+        logger.warning(
+            "LLM(Anthropic) %s, %.1fs 후 재시도 (attempt %d/%d)",
+            reason,
+            delay,
+            attempt + 1,
+            self.max_retries,
+        )
+        time.sleep(delay)
+        return attempt + 1
+
+    def _consume_stream(self, resp: Any) -> dict[str, Any]:
+        """SSE 이벤트를 끝까지 모아 비스트리밍처럼 하나의 결과로 돌려준다.
+
+        반환: {"text": 전체 텍스트, "content": 원본 블록 목록(대화 이력용),
+              "tool_uses": tool_use 블록만, "stop_reason": ...}
+        """
+        text_parts: list[str] = []
+        content: list[dict[str, Any]] = []
+        tool_uses: list[dict[str, Any]] = []
+        stop_reason: Optional[str] = None
+        usage: dict[str, Any] = {}
+        current: Optional[dict[str, Any]] = None
+        event = ""
+
+        for line in resp.iter_lines(decode_unicode=True):
+            if not line:
+                continue
+            if line.startswith("event:"):
+                event = line[len("event:"):].strip()
+                continue
+            if not line.startswith("data:"):
+                continue
+            try:
+                data = json.loads(line[len("data:"):].strip() or "{}")
+            except ValueError:
+                continue
+
+            if event == "message_start":
+                usage.update((data.get("message") or {}).get("usage") or {})
+            elif event == "content_block_start":
+                block = data.get("content_block") or {}
+                if block.get("type") == "tool_use":
+                    current = {
+                        "type": "tool_use",
+                        "id": block.get("id"),
+                        "name": block.get("name"),
+                        "partial": [],
+                    }
+                elif block.get("type") == "text":
+                    current = {"type": "text", "parts": []}
+                else:
+                    current = None
+            elif event == "content_block_delta":
+                delta = data.get("delta") or {}
+                if current is None:
+                    continue
+                if delta.get("type") == "text_delta" and current["type"] == "text":
+                    current["parts"].append(delta.get("text", ""))
+                elif delta.get("type") == "input_json_delta" and current["type"] == "tool_use":
+                    current["partial"].append(delta.get("partial_json", ""))
+            elif event == "content_block_stop":
+                if current is None:
+                    continue
+                if current["type"] == "text":
+                    text = "".join(current["parts"])
+                    text_parts.append(text)
+                    content.append({"type": "text", "text": text})
+                else:
+                    raw = "".join(current["partial"]) or "{}"
+                    try:
+                        args = json.loads(raw)
+                    except ValueError:
+                        args = {}
+                    use = {
+                        "type": "tool_use",
+                        "id": current["id"],
+                        "name": current["name"],
+                        "input": args,
+                    }
+                    content.append(use)
+                    tool_uses.append(use)
+                current = None
+            elif event == "message_delta":
+                stop_reason = (data.get("delta") or {}).get("stop_reason") or stop_reason
+                usage.update(data.get("usage") or {})
+            elif event == "error":
+                err = data.get("error") or {}
+                raise LlmApiError(500, str(err.get("message") or err))
+            elif event == "message_stop":
+                break
+
+        if usage:
+            logger.info("LLM call ok model=%s usage=%s", self.model, usage)
+        return {
+            "text": "".join(text_parts),
+            "content": content,
+            "tool_uses": tool_uses,
+            "stop_reason": stop_reason,
+        }
+
+
+def _to_anthropic_messages(history: list[ChatMessage]) -> list[dict[str, Any]]:
+    """OpenAI 형식 ChatMessage 이력을 Anthropic Messages 형식으로 변환한다.
+
+    ChatMessage/context_builder는 OpenAI 형식 그대로 두고 여기서만 변환한다 —
+    provider를 되돌릴 때(config 1줄) 이력 형식이 함께 흔들리지 않게.
+
+    - assistant의 tool_calls → tool_use 블록
+    - role="tool" 응답 → 직후 user 메시지의 tool_result 블록 (연속이면 하나로 합침)
+    """
+    messages: list[dict[str, Any]] = []
+    for m in history:
+        if m.role == "tool":
+            block = {
+                "type": "tool_result",
+                "tool_use_id": m.tool_call_id,
+                "content": m.content or "",
+            }
+            last = messages[-1] if messages else None
+            if last and last["role"] == "user" and isinstance(last["content"], list):
+                last["content"].append(block)
+            else:
+                messages.append({"role": "user", "content": [block]})
+            continue
+        if m.role == "assistant" and m.tool_calls:
+            blocks: list[dict[str, Any]] = []
+            if m.content:
+                blocks.append({"type": "text", "text": m.content})
+            for call in m.tool_calls:
+                fn = call.get("function") or {}
+                raw_args = fn.get("arguments") or "{}"
+                try:
+                    args = json.loads(raw_args) if isinstance(raw_args, str) else (raw_args or {})
+                except json.JSONDecodeError:
+                    args = {}
+                blocks.append(
+                    {
+                        "type": "tool_use",
+                        "id": call.get("id"),
+                        "name": fn.get("name"),
+                        "input": args,
+                    }
+                )
+            messages.append({"role": "assistant", "content": blocks})
+            continue
+        messages.append({"role": m.role, "content": m.content or ""})
+    return messages
+
+
 def create_llm_client(config: dict[str, Any]) -> LlmClient:
     llm = config.get("llm", {}) or {}
     provider = str(llm.get("provider", "gms")).lower()
@@ -273,15 +570,25 @@ def create_llm_client(config: dict[str, Any]) -> LlmClient:
     if api_key == "":
         api_key = None
 
-    default_base = (
-        GMS_OPENAI_BASE_URL if provider in {"gms", "ssafy"} else "https://api.openai.com/v1"
-    )
-    # 테스트/저비용 기본: nano. gpt-5-nano 도 .env 로 바꿀 수 있음
-    default_model = "gpt-4.1-nano" if provider in {"gms", "ssafy"} else "gpt-4o-mini"
-
-    model = os.environ.get("OPENAI_MODEL") or str(llm.get("model", default_model))
-    base_url = os.environ.get("OPENAI_BASE_URL") or str(llm.get("base_url", default_base))
-    max_tokens = int(os.environ.get("OPENAI_MAX_TOKENS") or llm.get("max_tokens", 256))
+    if provider == "anthropic":
+        # GMS Anthropic 프록시 (allowlist: opus-4-8/4-7/4-6, sonnet-4-6).
+        # OPENAI_MODEL 등 기존 env가 남아 있어도 오염되지 않게 ANTHROPIC_* 만 읽는다.
+        model = os.environ.get("ANTHROPIC_MODEL") or str(llm.get("model", "claude-opus-4-8"))
+        base_url = os.environ.get("ANTHROPIC_BASE_URL") or str(
+            llm.get("base_url", GMS_ANTHROPIC_BASE_URL)
+        )
+    else:
+        default_base = (
+            GMS_OPENAI_BASE_URL if provider in {"gms", "ssafy"} else "https://api.openai.com/v1"
+        )
+        # 테스트/저비용 기본: nano. gpt-5-nano 도 .env 로 바꿀 수 있음
+        default_model = "gpt-4.1-nano" if provider in {"gms", "ssafy"} else "gpt-4o-mini"
+        model = os.environ.get("OPENAI_MODEL") or str(llm.get("model", default_model))
+        base_url = os.environ.get("OPENAI_BASE_URL") or str(llm.get("base_url", default_base))
+    # max_tokens도 provider별 env를 읽는다 — .env에 남은 OPENAI_MAX_TOKENS(=200)가
+    # anthropic 쪽 한글 답변을 자르는 사고를 막는다.
+    max_tokens_env = "ANTHROPIC_MAX_TOKENS" if provider == "anthropic" else "OPENAI_MAX_TOKENS"
+    max_tokens = int(os.environ.get(max_tokens_env) or llm.get("max_tokens", 256))
     max_retries = int(os.environ.get("OPENAI_MAX_RETRIES") or llm.get("max_retries", 2))
     retry_backoff_seconds = float(
         os.environ.get("OPENAI_RETRY_BACKOFF_SECONDS") or llm.get("retry_backoff_seconds", 0.5)
@@ -290,7 +597,8 @@ def create_llm_client(config: dict[str, Any]) -> LlmClient:
         os.environ.get("OPENAI_TIMEOUT_SECONDS") or llm.get("request_timeout_seconds", 60.0)
     )
 
-    return LlmClient(
+    client_cls = AnthropicLlmClient if provider == "anthropic" else LlmClient
+    return client_cls(
         provider=provider,
         model=model,
         api_key=api_key,
