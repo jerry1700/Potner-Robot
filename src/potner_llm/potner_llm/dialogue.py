@@ -4,7 +4,7 @@ import logging
 from typing import Any, Callable, Optional
 
 from .client import ChatMessage, LlmClient, create_llm_client
-from .context_builder import DEFAULT_MAX_CONTEXT_TOKENS, ContextBuilder, trim_history
+from .context_builder import DEFAULT_MAX_CONTEXT_TOKENS, ContextBuilder
 from .conversation_backend import ConversationBackend
 from .events import EventStore
 from .factcheck import (
@@ -205,8 +205,8 @@ class DialogueService:
         """백엔드에 저장된 대화 전체를 그대로 불러온다 (기록은 손실 없이 보존).
 
         LLM에 매 호출마다 전체를 다시 넘기면 대화가 길어질수록 토큰 비용이
-        계속 커지므로, 실제로 프롬프트에 넣는 양은 _bounded_history()에서
-        최근 max_history_turns턴만 잘라 쓴다.
+        계속 커지므로, 실제로 프롬프트에 넣는 양은 ContextBuilder.build()가
+        최근 max_history_turns턴·토큰 예산 안으로 잘라 쓴다.
         """
         assert self._backend is not None
         raw = self._backend.load(self._session_id)
@@ -215,10 +215,6 @@ class DialogueService:
             for item in raw
             if item.get("content")
         ]
-
-    def _bounded_history(self) -> list[ChatMessage]:
-        """최근 대화만 잘라낸다 — 교환(exchange) 단위라 툴콜 쌍이 안 끊긴다."""
-        return trim_history(self._history, max_messages=self._max_history_turns * 2)
 
     def _remember_turn(self, user_message: ChatMessage, assistant_message: ChatMessage) -> None:
         self._history.append(user_message)
