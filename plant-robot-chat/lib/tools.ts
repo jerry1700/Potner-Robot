@@ -173,6 +173,39 @@ export const TOOLS: ToolDefinitions = [
     },
   },
   {
+    name: 'search_web_knowledge',
+    description:
+      '한국어 위키백과에서 문서 요약을 검색한다. ' +
+      'search_plant_info가 모르는 식물이라고 답했거나, 내부 데이터베이스 범위를 벗어나는 ' +
+      '식물·원예 용어("수경재배", "테라리움", 희귀 품종 등)나 일반 지식 질문을 받으면 ' +
+      '추측으로 답하기 전에 먼저 호출한다. 결과 요약을 근거로 삼고 출처가 위키백과임을 밝힌다.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        query: {
+          type: 'string',
+          description: '검색어. 사용자가 말한 이름·용어를 한글 그대로 넣는다. 예: "테라리움", "칼라디움".',
+        },
+      },
+      required: ['query'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'get_news',
+    description:
+      '지금 이 순간의 주요 뉴스 헤드라인 목록을 가져온다. ' +
+      '"오늘 뉴스 뭐 있어?", "요즘 세상에 무슨 일 있어?", "바깥 소식 궁금해" 같은 질문에 호출한다. ' +
+      '기억 속 지식은 오래됐으니 최신 소식 질문에는 반드시 이 도구를 쓴다. ' +
+      '결과는 헤드라인 전달 수준으로 짧게 요약하고, 정치·논쟁적 주제에는 의견을 붙이지 않는다.',
+    input_schema: {
+      type: 'object',
+      properties: {},
+      required: [],
+      additionalProperties: false,
+    },
+  },
+  {
     name: 'get_plant_sensor_status',
     description:
       '로봇에 달린 센서가 방금 측정한 흙 수분·온도·습도·조도 실측값을 조회하고 해석한다. ' +
@@ -196,5 +229,7 @@ export const TOOL_STATUS: ToolStatusMap = {
   get_seasonal_care_tips: '🗓️ 계절 관리법을 챙겨보고 있어요...',
   recommend_plant: '🌱 어울리는 식물을 고르고 있어요...',
   get_current_weather: '☀️ 날씨를 확인하고 있어요...',
+  search_web_knowledge: '📚 위키백과를 뒤져보고 있어요...',
+  get_news: '📰 오늘의 소식을 살펴보고 있어요...',
   get_plant_sensor_status: '🌡️ 센서 값을 확인하고 있어요...',
 };
