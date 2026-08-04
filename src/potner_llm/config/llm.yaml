@@ -10,13 +10,20 @@
 
 llm:
   enabled: true
-  provider: gms          # gms | openai | mock
-  model: gpt-4.1-nano    # 저비용 테스트. 필요시 gpt-5-nano 등
-  max_tokens: 200
+  provider: anthropic    # anthropic | gms | openai | mock
+  # GMS Anthropic 프록시 allowlist: claude-opus-4-8 / 4-7 / 4-6, claude-sonnet-4-6
+  # (claude-opus-5 등 5 계열은 아직 없음 → 400). temperature는 보내면 400이라
+  # 클라이언트가 아예 보내지 않는다 — 톤은 시스템 프롬프트로 제어.
+  model: claude-opus-4-8
+  # 한글은 토큰 단가가 높고 tool_use JSON도 출력 토큰을 먹는다 — 200이면 잘림.
+  max_tokens: 400
   max_retries: 2
   retry_backoff_seconds: 0.5
-  api_key_env: OPENAI_API_KEY
-  base_url: https://gms.ssafy.io/gmsapi/api.openai.com/v1
+  api_key_env: OPENAI_API_KEY   # 없으면 GMS_API_KEY 폴백 (키는 GMS 하나로 공용)
+  base_url: https://gms.ssafy.io/gmsapi/api.anthropic.com
+  # 이전 설정 (OpenAI 프록시로 롤백할 때):
+  #   provider: gms / model: gpt-4.1-nano / max_tokens: 200
+  #   base_url: https://gms.ssafy.io/gmsapi/api.openai.com/v1
 
 # 대화 이력 저장/복원 설정.
 # 한 대화가 끝나면(DialogueService.end_conversation()) 여기 저장하고,
@@ -30,6 +37,16 @@ conversation:
                             # 상대경로를 직접 쓰면 실행한 위치(cwd) 기준이 되니 주의.
   base_url: ""              # backend=http일 때 예: http://localhost:8080/api
   timeout_seconds: 10
+
+# 웹 조회 — LLM이 "내일 날씨 어때?"(Open-Meteo), "잎이 왜 노래져?"(위키백과),
+# "요즘 뉴스 뭐 있어?"(Google News RSS)에 실제 웹 정보로 답하게 한다.
+# 전부 키가 필요 없는 공개 API. enabled: false면 툴이 비활성 안내로 답한다.
+web:
+  enabled: true
+  latitude: 35.09     # 로봇 위치 (부산 강서구 녹산) — 시연 장소에 맞게 조정
+  longitude: 128.85
+  timeout_seconds: 8
+  news_limit: 5
 
 # 센서 조회 — LLM이 "지금 온도/습도 어때?" 같은 질문에 실측값으로 답하게 한다.
 # 기본은 none(연동 안 함 → 호출부가 sensors.json 파일 기반 데모로 폴백).

@@ -138,6 +138,16 @@ _METRIC_LABEL_KO = {
 _SOIL_CONTEXT = re.compile(r"토양|흙|뿌리|수분")
 _HUMIDITY_CONTEXT = re.compile(r"습도|공기|대기")
 
+# 웹 툴(날씨·지식·뉴스) 결과에서 온 수치는 자기 센서 주장이 아니다 — 숫자 앞
+# 일부 구간에 아래 문맥이 있으면 대조를 건너뛴다. 그렇지 않으면 "내일은 3도래"
+# (예보)가 센서 온도와 달라 정답이 기각된다. 시스템 프롬프트가 외부 정보에
+# 출처("바깥은/예보로는/뉴스에서는")를 밝히게 지시하는 것과 맞물리는 장치다.
+# 문맥이 없으면 기존과 동일하게 검사한다 (센서 거짓말 방어는 유지).
+_EXTERNAL_CONTEXT = re.compile(
+    r"내일|모레|주말|예보|날씨|바깥|기온|최저|최고|강수|비 올|뉴스|적정 온도|권장"
+)
+_EXTERNAL_CONTEXT_WINDOW = 12
+
 # --- 상태 주장 (토양 수분) -----------------------------------------------------
 
 _DRY_CLAIM = re.compile(r"목말|목이 말|건조|말랐|메말|바싹|물이 부족|물이 필요")
@@ -216,6 +226,9 @@ def _check_numeric_claims(
 ) -> int:
     checked = 0
     for match in _NUMBER_CLAIM.finditer(body):
+        context = body[max(0, match.start() - _EXTERNAL_CONTEXT_WINDOW):match.start()]
+        if _EXTERNAL_CONTEXT.search(context):
+            continue  # 바깥 날씨/일반 지식/뉴스 수치 — 내 센서 주장이 아니다
         raw_value = match.group("value") or match.group("value2")
         unit = match.group("unit") or match.group("unit2")
         value = float(raw_value)
@@ -313,6 +326,12 @@ def _check_soil_state_claims(
     checked = 0
     dry = _DRY_CLAIM.search(body)
     wet = _WET_CLAIM.search(body)
+    # "건조한 날씨래", "바깥 공기가 건조하대"처럼 날씨/바깥 이야기의 건조·촉촉
+    # 표현은 토양 상태 주장이 아니다 — 표현 주변 구간에 외부 문맥이 있으면 제외.
+    if dry and _external_state_context(body, dry):
+        dry = None
+    if wet and _external_state_context(body, wet):
+        wet = None
     if dry:
         checked += 1
         if sensors.soil > policy.soil_wet_above:
@@ -328,6 +347,16 @@ def _check_soil_state_claims(
                 f"토양 수분 {sensors.soil:g}%인데 촉촉하다고 말함 ({wet.group(0)!r})",
             ))
     return checked
+
+
+def _external_state_context(body: str, match: "re.Match[str]") -> bool:
+    """상태 표현(건조/촉촉) 주변이 날씨·바깥 이야기인지 판별한다.
+
+    수치 주장과 달리 문맥 단서("날씨래")가 표현 뒤에 오는 경우가 많아
+    앞뒤 양쪽 구간을 본다.
+    """
+    segment = body[max(0, match.start() - 8):match.end() + 8]
+    return bool(re.search(r"날씨|바깥|공기|대기|내일|예보", segment))
 
 
 # --- 내부: 지어낸 이벤트 대조 ---------------------------------------------------
