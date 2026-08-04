@@ -1,5 +1,35 @@
 # LLM 대화에 라즈베리 온습도 실측값 연동 — 구현 계획
 
+## 진행 상태 (2026-08-04) — 실데이터 E2E 검증 완료
+
+**서버 쪽도 구현됐다** — `Server-feature/device-sensor-auth` 브랜치(커밋
+b675056·6ced0e4·f970c95, 푸시됨)에 `GET /api/v1/device/sensors/current`가
+사진 업로드와 같은 uploadToken(X-Device-Token) 재사용으로 구현·테스트돼
+있다. 운영 배포는 Server-develop → Server-master 머지 후 Jenkins가 한다
+(Jenkinsfile의 배포 대상은 Server-master뿐).
+
+**머지 전 실데이터 E2E 검증 통과 (2026-08-04, 이 브랜치)** — 새 엔드포인트가
+운영에 깔리기 전이므로, 배관이 완전히 같은 사용자 JWT 변형(전환 절차의
+"사용자 JWT 방식")으로 운영 서버 실측값을 통과시켰다:
+
+- 기준값: 운영 서버 `GET /plants/4244c331-…(Vice)/sensors/current` →
+  온도 26.6°C / 습도 48.0% / 토양 10.0% (STALE — 라즈베리 마지막 전송
+  08-03 08:54Z. STALE 값도 그대로 쓰는 설계 확인), 조도 NO_DATA.
+- provider 단독: `SpringSensorSource` snapshot이 위 값과 정확히 일치,
+  NO_DATA→None(미측정), 토양 10%→'건조' 판정, 로그 `센서 조회 성공 (spring:…)`.
+- 실대화(GMS gpt-4.1-nano, CLI): "지금 온도 어때?"→**"온도는 26.6도예요.
+  적정한 상태라고 생각돼요."**, "습도는 어때?"→**"습도는 48%로 적당한
+  편이에요."**, "물 줘야 해?"→**"네, 토양이 건조해서 물이 필요해요."**
+  — 매 턴 factcheck 통과.
+- 목데이터 배제 증명: 검증 동안 `sensors.json` 더미를 99.9°C/1% 함정값으로
+  바꿔 뒀다 — 답변 어디에도 안 나옴 = 파일 폴백을 타지 않음. 잘못된
+  plantId로는 404를 provider가 흡수하고 None(미측정) 폴백하는 것도 확인.
+
+남은 것: 서버 운영 배포 후 [전환 절차](#전환-절차-서버-답변-후) 그대로
+X-Device-Token 최종형으로 config 전환(토큰은 `.env`의 `POTNER_UPLOAD_TOKEN`
+재사용 확정). CLI는 `python -m potner_llm.cli`로 실행한다(파일 직접 실행은
+상대 임포트 오류).
+
 ## 진행 상태 (2026-08-03)
 
 **아래 1~4번(어댑터·설정·배관·테스트)은 구현·검증 완료.** 남은 것은 서버에
