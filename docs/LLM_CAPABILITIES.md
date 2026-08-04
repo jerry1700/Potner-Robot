@@ -3,6 +3,8 @@
 사용자가 (폰 음성 또는 모니터 타이핑으로) LLM과 대화할 때, 현재 코드
 기준으로 무엇을 답할 수 있고 무엇을 못 하는지 정리한다. 근거는 전부
 `src/potner_llm/`과 `voice-chat-server/`의 실제 구현이다 (2026-08-03).
+질문 예시 중심의 사용자 관점 정리는
+[`LLM_QUESTION_EXAMPLES.md`](LLM_QUESTION_EXAMPLES.md) 참고.
 
 ## 누가 답하는가
 

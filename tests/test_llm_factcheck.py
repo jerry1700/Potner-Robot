@@ -76,6 +76,25 @@ def test_rejects_temperature_contradicting_sensor():
     assert "sensor_mismatch:temp" in result.issue_codes
 
 
+def test_accepts_negative_temperature_matching_sensor():
+    # 실측이 영하일 때 정답("영하 5도"/"-5도")이 +5로 파싱돼 기각되던 오탐 회귀 방지
+    cold = SensorSnapshot(temp=-5.0)
+    assert verify_response("지금 영하 5도라서 너무 추워.", cold).ok is True
+    assert verify_response("지금 -5도야, 얼겠어.", cold).ok is True
+
+
+def test_rejects_fabricated_negative_temperature():
+    result = verify_response("지금 영하 5도야.", SENSORS)  # 실측 26.1°C
+    assert result.ok is False
+    assert "sensor_mismatch:temp" in result.issue_codes
+
+
+def test_range_expression_not_misread_as_negative():
+    # "50-60%"의 '-'는 범위 표기다 — -60%로 오독하면 정상 답변이 기각된다
+    result = verify_response("토양 수분은 50-60% 사이야.", SensorSnapshot(soil=55.0))
+    assert result.ok is True
+
+
 def test_rejects_light_far_from_sensor():
     result = verify_response("조도가 5000 lux나 돼서 눈부셔.", SENSORS)
     assert result.ok is False
