@@ -11,7 +11,7 @@ setup(
         ("share/" + package_name, ["package.xml"]),
         ("share/" + package_name + "/config", ["config/llm.yaml"]),
     ],
-    install_requires=["setuptools"],
+    install_requires=["setuptools", "requests"],
     zip_safe=True,
     maintainer="E104",
     maintainer_email="notbad1700@gmail.com",

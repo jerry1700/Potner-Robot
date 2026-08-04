@@ -107,7 +107,7 @@ conversation 백엔드에 저장돼 다음 접속에서 이어진다.
 
 `LLM_BACKEND` 환경변수로 두뇌를 고른다:
 
-- **`potner` (기본)** — potner_llm DialogueService (오린카, GMS GPT).
+- **`potner` (기본)** — potner_llm DialogueService (오린카, GMS claude-opus-4-8).
   대화 컨텍스트 조립(context_builder) + 센서 조회 툴 + 사실성 검증(factcheck,
   센서와 상충하는 답은 재생성 후 상태 기반 폴백)이 적용된다.
 - **`webchat`** — plant-robot-chat의 `/api/chat`을 HTTP로 호출.
