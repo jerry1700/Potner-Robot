@@ -9,6 +9,43 @@
 | 20kHz PWM 생성 | 가청 대역 밖이라 조용합니다 |
 | 워치독 정지 | 젯슨이 죽어도 로봇이 계속 달리지 않게 |
 
+## ⚠️ 젯슨 전원 켤 때마다 필요한 작업 (CH340 드라이버)
+
+지금 쓰는 ESP32 DevKit V1 보드는 USB-시리얼 브리지로 **CH340(벤더 1a86:7523)**을
+씁니다. 그런데 이 Jetson의 Tegra 커널(`5.15.148-tegra`)에는 `ch341` 드라이버가
+빠져 있어서, 커널 모듈을 직접 빌드해서 넣어야 합니다. **이 모듈은 재부팅하면
+날아가므로, 부팅할 때마다 다시 로드해야 합니다.**
+
+```bash
+sudo modprobe usbserial
+sudo insmod ~/ch341-build/ch341.ko
+```
+
+그다음 USB 케이블을 뽑았다 다시 꽂고:
+
+```bash
+ls -l /dev/ttyUSB* /dev/ttyACM* 2>/dev/null
+```
+
+`/dev/ttyUSB0`가 잡히면 정상입니다 (ESP32가 아니라 CH340 칩 자체가 이 이름으로
+잡힙니다 — LiDAR의 CP2102와는 별개 장치입니다).
+
+`~/ch341-build/ch341.ko`가 없으면 처음부터 빌드해야 합니다:
+
+```bash
+mkdir -p ~/ch341-build && cd ~/ch341-build
+wget -O ch341.c https://raw.githubusercontent.com/torvalds/linux/v5.15/drivers/usb/serial/ch341.c
+printf 'obj-m += ch341.o\nall:\n\tmake -C /lib/modules/$(shell uname -r)/build M=$(PWD) modules\nclean:\n\tmake -C /lib/modules/$(shell uname -r)/build M=$(PWD) clean\n' > Makefile
+make
+```
+
+**`brltty` 패키지가 깔려 있으면 반드시 제거하세요** — 점자 단말기 드라이버인데
+udev 규칙이 CH340을 자기 것으로 가로채서, 드라이버가 붙자마자 바로 떼어내 버립니다.
+
+```bash
+sudo apt remove --purge -y brltty
+```
+
 ## 배선
 
 ### ESP32 → BTS7960 (모터 드라이버 2개)
@@ -81,6 +118,13 @@ ESP32 -> 젯슨
 - `MAX_WHEEL_MPS` — 안전 상한
 
 `COUNTS_PER_REV = 1440` 은 FIT0403 사양에서 나온 확정값이니 건드리지 마세요.
+
+**좌우 편차 테스트 시 주의**: `WATCHDOG_TIMEOUT_MS = 500` 때문에 `V,...` 명령을
+한 번만 보내면 0.5초 후 자동 정지합니다. 이 상태로 좌우 카운트를 비교하면
+가속 구간(과도 상태)만 보게 돼서 실제보다 훨씬 큰 편차(13~49%)로 착시가
+생깁니다. 명령을 0.2초 간격으로 반복 전송해서 몇 초간 정상 상태(steady
+state)에 도달시킨 뒤 비교해야 정확합니다 — 이렇게 재보니 `KI=1600`에서
+좌우 편차는 약 4~5% 수준으로, 정상적인 하드웨어 개체차 범위입니다.
 
 ## 첫 동작 확인 순서
 

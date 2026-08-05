@@ -51,7 +51,7 @@ constexpr uint32_t WATCHDOG_TIMEOUT_MS = 500; // 젯슨이 조용하면 멈춤
 // TODO: 실기에서 튜닝. 바퀴가 떨리면 kp를 낮추고, 목표 속도에 못 미치면
 //       ki를 조금씩 올리세요. kd는 대개 0으로 두어도 됩니다.
 constexpr float KP = 800.0f;
-constexpr float KI = 1200.0f;
+constexpr float KI = 1600.0f;
 constexpr float KD = 0.0f;
 
 ESP32Encoder encLeft;
