@@ -5,7 +5,8 @@ MQTT로 이야기합니다. 이 노드가 그 사이를 번역합니다.
 
     올려보냄   센서 측정값 (측정값 하나당 메시지 하나), 하트비트,
                로봇 상태, 배터리 잔량, 명령 결과 회신
-    내려받음   표정, 귀가 마중(welcome_start/cancel), 이동(navigate)
+    내려받음   표정, 귀가 마중(welcome_start/cancel), 이동(navigate),
+               수동 주행(drive — 회신 없음, drive_contract.py 참고)
 
 명령을 여기서 직접 수행하지 않습니다. 검증만 하고 ROS 토픽으로 넘긴 뒤
 mission_manager 의 결과를 받아 서버로 되돌립니다. Nav2 목표의 주인이
@@ -47,6 +48,11 @@ from potner_bridge.command_result import (
     parse_result_envelope,
     result_message,
     result_topic,
+)
+from potner_bridge.drive_contract import (
+    DRIVE,
+    drive_command_json,
+    parse_drive_command,
 )
 from potner_bridge.navigate_contract import (
     navigate_command_json,
@@ -134,6 +140,12 @@ class MqttBridge(Node):
         # 이동 네 기능이 전부 이 명령으로 시작합니다.
         self._navigate_command_pub = self.create_publisher(
             String, "mission/navigate_command", 10
+        )
+        # 휴대폰 방향 버튼(수동 주행). navigate와 달리 회신 계약이 없어서
+        # mission/*_result 구독에도 안 들어갑니다 — drive_node가 twist_mux
+        # teleop 슬롯으로 바로 흘려보내고 끝입니다.
+        self._drive_command_pub = self.create_publisher(
+            String, "mission/drive_command", 10
         )
         # 결과 봉투에 commandName이 들어 있어 두 토픽을 한 콜백으로 받습니다.
         for topic in ("mission/arrival_result", "mission/navigate_result"):
@@ -255,6 +267,27 @@ class MqttBridge(Node):
             self.get_logger().info(
                 f"이동 명령 수신 -> mission/navigate_command "
                 f"(destination={command.destination}, "
+                f"requestId={command.request_id})"
+            )
+            return
+
+        if command_name == DRIVE:
+            try:
+                command = parse_drive_command(message.payload)
+            except CommandError as exc:
+                # drive는 회신 계약이 없습니다(서버가 result/drive를 인식하지
+                # 않음) — 거절해도 회신을 만들지 않고 로그만 남깁니다.
+                self.get_logger().error(
+                    f"주행 명령 거부: code={exc.code}, reason={exc}"
+                )
+                return
+
+            self._drive_command_pub.publish(
+                String(data=drive_command_json(command))
+            )
+            self.get_logger().info(
+                f"주행 명령 수신 -> mission/drive_command "
+                f"(direction={command.direction}, "
                 f"requestId={command.request_id})"
             )
             return
