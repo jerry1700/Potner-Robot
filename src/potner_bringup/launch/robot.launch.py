@@ -145,6 +145,14 @@ def generate_launch_description():
             output="screen",
         ),
 
+        # ---- 수동 주행: 휴대폰 방향 버튼 -> twist_mux teleop 슬롯
+        Node(
+            package="potner_mission",
+            executable="drive_node",
+            parameters=[params],
+            output="screen",
+        ),
+
         # ---- 외부 연동
         Node(
             package="potner_bridge",
