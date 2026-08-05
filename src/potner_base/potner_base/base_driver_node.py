@@ -130,6 +130,13 @@ class BaseDriver(Node):
         idle = (now - self._last_cmd_time).nanoseconds * 1e-9
         if idle > self.cmd_vel_timeout:
             self._target = (0.0, 0.0)
+
+        # 목표가 0이면 V,0,0 이 아니라 S 를 보냅니다. V,0,0 은 펌웨어 PID를
+        # 계속 돌리는 명령이라, 엔코더 선이 빠져 측정이 0으로 얼어붙으면
+        # 주행 중 감긴 적분항이 풀리지 않아 바퀴가 멈추지 않습니다 (실기에서
+        # 당했습니다). S 는 펌웨어가 PID 상태를 통째로 리셋하므로 엔코더
+        # 상태와 무관하게 무조건 멈춥니다.
+        if self._target == (0.0, 0.0):
             self._write(proto.encode_stop())
         else:
             self._write(proto.encode_velocity(*self._target))
