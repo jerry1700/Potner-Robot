@@ -105,6 +105,17 @@ float updatePid(Wheel &wheel, int64_t count, float dt) {
   wheel.prev_count = count;
   wheel.measured_mps = travelled / dt;
 
+  // 목표가 0이고 측정도 0이면 출력을 끊고 적분항을 비웁니다. 엔코더 선이
+  // 빠지면 measured가 영원히 0이라, 주행 중 최대로 감긴 적분항이 정지
+  // 명령(V,0,0)을 받아도 안 풀려서(error=0) 바퀴가 전속력으로 계속 돕니다.
+  // 실기에서 실제로 당했습니다 — 엔코더 카운트는 얼어 있는데 바퀴만 도는
+  // 로그가 그 증거였습니다.
+  if (wheel.target_mps == 0.0f && wheel.measured_mps == 0.0f) {
+    wheel.integral = 0.0f;
+    wheel.prev_error = 0.0f;
+    return 0.0f;
+  }
+
   float error = wheel.target_mps - wheel.measured_mps;
   wheel.integral += error * dt;
 
