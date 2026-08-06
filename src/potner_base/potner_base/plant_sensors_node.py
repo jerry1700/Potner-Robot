@@ -62,10 +62,13 @@ class PlantSensors(Node):
         self.declare_parameter("i2c_bus", 7)  # Orin Nano 40핀 헤더
         self.declare_parameter("publish_period", 2.0)
 
-        # TODO: 실측 필요. 센서를 공기 중에 두고 읽은 값과 물에 담그고 읽은
-        # 값입니다. 보정 전에는 moisture 를 발행하지 않습니다.
-        self.declare_parameter("moisture_raw_dry", 0)
-        self.declare_parameter("moisture_raw_wet", 0)
+        # 실측 보정값. 센서를 공기 중에 두고 읽은 값과 물에 담그고 읽은
+        # 값입니다. 둘 다 0 이면(보정 전) moisture 를 아예 발행하지 않습니다 —
+        # 가짜 값이 흘러가면 엉뚱한 급수 임무가 뜹니다.
+        # potner_params.yaml 과 반드시 같아야 하며, 어긋나면
+        # tests/test_config_consistency.py 가 잡아냅니다.
+        self.declare_parameter("moisture_raw_dry", 24000)
+        self.declare_parameter("moisture_raw_wet", 12000)
 
         self.declare_parameter("battery_cells", 4)  # 젯슨팩은 4S
         self.declare_parameter("battery_voltage_path", "")
