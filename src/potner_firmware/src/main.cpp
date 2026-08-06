@@ -61,6 +61,21 @@ constexpr float KP = 800.0f;
 constexpr float KI = 1600.0f;
 constexpr float KD = 0.0f;
 
+// ===== 피드포워드 ==========================================================
+// PID 만으로는 정지 상태에서 출력이 너무 천천히 오릅니다. 실측한 오도메트리
+// 로그에서 목표 0.12m/s 에 도달하는 데 0.6초가 걸렸는데, 앱의 버튼 한 번이
+// 그 0.6초라 가속만 하다 끝나서 2~3cm 밖에 못 갔습니다. 회전은 목표 바퀴
+// 속도가 절반(0.06m/s)이라 아예 정지 마찰을 못 이겼습니다.
+//
+// 그래서 목표 속도로부터 필요한 duty 를 미리 얹고, PID 는 그 위에서 오차만
+// 보정하게 합니다. 쿨롱 마찰(정지 돌파분) + 점성 마찰(속도 비례분) 모델입니다.
+//
+// 바퀴가 출발할 때 튀거나 떨리면 FF_STATIC 을 먼저 낮추세요. 0 으로 두면
+// 피드포워드가 사실상 꺼져 예전 동작으로 돌아갑니다.
+constexpr float FF_STATIC = 0.15f;        // 정지 마찰 돌파에 필요한 최소 duty
+constexpr float FF_SLOPE = 0.85f;         // 속도 비례분
+constexpr float NO_LOAD_MAX_MPS = 0.383f; // 무부하 122RPM 환산 바퀴 선속도
+
 ESP32Encoder encLeft;
 ESP32Encoder encRight;
 
@@ -107,6 +122,16 @@ float countsToMeters(int64_t counts) {
   return (counts / COUNTS_PER_REV) * PI * WHEEL_DIAMETER_M;
 }
 
+float feedforward(float target_mps) {
+  // 목표가 0 이면 미리 얹을 것이 없습니다. 여기서 0 을 안 돌려주면 정지
+  // 명령에도 바퀴가 슬금슬금 기어갑니다.
+  if (target_mps == 0.0f) return 0.0f;
+
+  float magnitude =
+      FF_STATIC + FF_SLOPE * fabs(target_mps) / NO_LOAD_MAX_MPS;
+  return target_mps > 0.0f ? magnitude : -magnitude;
+}
+
 float updatePid(Wheel &wheel, int64_t count, float dt) {
   float travelled = countsToMeters(count - wheel.prev_count);
   wheel.prev_count = count;
@@ -134,7 +159,8 @@ float updatePid(Wheel &wheel, int64_t count, float dt) {
   wheel.prev_error = error;
 
   float output = KP * error + KI * wheel.integral + KD * derivative;
-  return constrain(output / 1000.0f, -1.0f, 1.0f);
+  return constrain(
+      feedforward(wheel.target_mps) + output / 1000.0f, -1.0f, 1.0f);
 }
 
 void stopAll() {

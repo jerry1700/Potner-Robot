@@ -66,24 +66,35 @@ def parse_drive_command(payload: Union[str, bytes]) -> DriveCommand:
     )
 
 
-def hold_seconds(command: DriveCommand, turn_angle_rad: float) -> float:
+def hold_seconds(
+    command: DriveCommand, turn_angle_rad: float, step_distance_m: float
+) -> float:
     """명령을 유지할 시간(초).
 
-    제자리 회전(직진 성분 0, 회전 성분 있음)이면 서버가 준 ``durationMs`` 를
-    쓰지 않고 목표 각도를 돌 만큼만 유지합니다. 앱의 좌/우 버튼 한 번이
-    항상 같은 각도를 돌아야 방향을 가늠하며 조작할 수 있기 때문입니다.
+    버튼 한 번이 늘 **같은 거리·같은 각도**를 움직여야 사람이 로봇 위치를
+    가늠하며 조작할 수 있습니다. 그래서 서버가 준 ``durationMs`` 대신
+    목표량을 채울 만큼의 시간을 계산합니다.
 
-    직진·후진·정지는 서버가 준 ``durationMs`` 를 그대로 씁니다.
+        제자리 회전   목표 각도 / 각속도
+        직진·후진     목표 거리 / 선속도
+        그 외         서버의 durationMs (정지, 곡선 주행)
 
-    ★ 회전 각도는 ``wheel_separation`` 실측에 의존합니다. 이 값이 틀리면
-      명령한 각속도와 실제 각속도가 어긋나 회전량이 비례해서 틀어집니다.
-      오도메트리로 닫아도 같은 상수를 쓰므로 오차가 상쇄되지 않습니다.
+    서버 기본값(0.12m/s, 600ms)을 그대로 쓰면 한 번에 7cm 밖에 못 가는데,
+    가속에만 0.6초가 걸려 실측 이동 거리는 2~3cm 였습니다. 좌표 등록용
+    조작에는 너무 짧습니다.
+
+    ★ 회전 각도의 정확도는 ``wheel_separation`` 실측에 의존합니다. 이 값이
+      틀리면 명령한 각속도와 실제 각속도가 어긋나 회전량이 비례해서
+      틀어집니다. 오도메트리로 닫아도 같은 상수를 쓰므로 상쇄되지 않습니다.
 
     Args:
         turn_angle_rad: 좌/우 버튼 한 번에 돌 각도 (rad)
+        step_distance_m: 전진/후진 버튼 한 번에 갈 거리 (m)
     """
     if command.linear_mps == 0.0 and command.angular_rps != 0.0:
         return abs(turn_angle_rad / command.angular_rps)
+    if command.angular_rps == 0.0 and command.linear_mps != 0.0:
+        return abs(step_distance_m / command.linear_mps)
     return command.duration_ms / 1000.0
 
 
