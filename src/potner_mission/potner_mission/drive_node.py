@@ -6,10 +6,11 @@ mission_manager 의 자율주행 상태머신(IDLE/NAVIGATING/DOCKING/...)과는
 Nav2 100보다 높고 safety 255보다 낮음, config/twist_mux.yaml)으로 흘려보낼
 뿐입니다.
 
-직진·후진은 서버가 준 durationMs 만큼, **좌/우 회전은 turn_angle_deg
-(기본 22.5도)만큼** 돌고 스스로 0 Twist 를 발행해 멈춥니다. 회전을 시간이
-아니라 각도로 끊는 이유는, 버튼 한 번이 늘 같은 각도를 돌아야 사람이
-방향을 가늠하며 조작할 수 있기 때문입니다 (22.5도면 열여섯 번에 한 바퀴).
+버튼 한 번이 늘 같은 양을 움직입니다 — **전진·후진은 step_distance_m
+(기본 0.15m), 좌/우 회전은 turn_angle_deg(기본 22.5도)**. 서버가 준
+durationMs 를 쓰지 않는 이유는, 그대로 쓰면 가속에만 시간을 다 쓰고
+실측 2~3cm 밖에 못 가서 좌표 등록용으로 쓸 수 없었기 때문입니다.
+22.5도면 열여섯 번에 한 바퀴라 방향을 눈으로 가늠하기 좋습니다.
 
 base_driver 의 cmd_vel_timeout(기본 0.5초) 안전장치에만 기대면, 유지
 시간이 그보다 길 때 버튼 한 번에 로봇이 멈췄다 다시 움직이는 것처럼
@@ -49,9 +50,13 @@ class DriveNode(Node):
         # 좌/우 버튼 한 번에 도는 각도. 22.5도면 열여섯 번에 한 바퀴라
         # 방향을 눈으로 가늠하며 조작하기 좋습니다.
         self.declare_parameter("turn_angle_deg", 22.5)
+        # 전진/후진 버튼 한 번에 가는 거리. 서버 기본값(600ms)대로 두면 실측
+        # 2~3cm 밖에 못 가서 좌표 등록용으로 쓸 수 없었습니다.
+        self.declare_parameter("step_distance_m", 0.15)
         self._turn_angle_rad = math.radians(
             self.get_parameter("turn_angle_deg").value
         )
+        self._step_distance_m = self.get_parameter("step_distance_m").value
 
         self._twist_pub = self.create_publisher(Twist, "cmd_vel_teleop", 10)
         self.create_subscription(
@@ -89,7 +94,9 @@ class DriveNode(Node):
         self._active_angular = command.angular_rps
         self._publish_twist(self._active_linear, self._active_angular)
 
-        hold_s = hold_seconds(command, self._turn_angle_rad)
+        hold_s = hold_seconds(
+            command, self._turn_angle_rad, self._step_distance_m
+        )
         if hold_s > 0.0:
             self._stop_at = self.get_clock().now() + Duration(seconds=hold_s)
             self._ensure_keepalive_timer()

@@ -16,6 +16,7 @@ from potner_bridge.drive_contract import (
 )
 
 TURN_22_5 = math.radians(22.5)
+STEP_0_15 = 0.15
 
 REQUEST_ID = "3ff0d4af-9217-4473-b7a4-f8ff8d420daa"
 
@@ -145,7 +146,12 @@ def test_손상된_내부_명령은_거부한다():
     assert error.value.code == "INVALID_INTERNAL_COMMAND"
 
 
-# --- 유지 시간 (좌/우는 각도로, 직진은 시간으로) ---
+# --- 유지 시간 (버튼 한 번 = 같은 거리·같은 각도) ---
+
+
+def hold(command):
+    """기본 설정(22.5도 / 0.15m)으로 유지 시간을 구한다."""
+    return hold_seconds(command, TURN_22_5, STEP_0_15)
 
 
 @pytest.mark.parametrize("angular", [0.6, -0.6])
@@ -156,7 +162,7 @@ def test_제자리_회전은_durationMs가_아니라_목표_각도로_끊는다(
     )
 
     # 22.5도(0.3927rad)를 0.6rad/s 로 돌면 약 0.654초. 서버의 600ms 가 아니다.
-    assert hold_seconds(command, TURN_22_5) == pytest.approx(0.6545, abs=1e-3)
+    assert hold(command) == pytest.approx(0.6545, abs=1e-3)
 
 
 def test_회전_각속도가_빠르면_유지_시간이_짧아진다():
@@ -164,28 +170,37 @@ def test_회전_각속도가_빠르면_유지_시간이_짧아진다():
     slow = parse_drive_command(payload(linearMps=0.0, angularRps=0.3))
     fast = parse_drive_command(payload(linearMps=0.0, angularRps=1.2))
 
-    assert hold_seconds(slow, TURN_22_5) == pytest.approx(
-        4 * hold_seconds(fast, TURN_22_5)
-    )
+    assert hold(slow) == pytest.approx(4 * hold(fast))
 
 
 @pytest.mark.parametrize("linear", [0.12, -0.12])
-def test_직진_후진은_서버가_준_durationMs를_그대로_쓴다(linear):
+def test_직진_후진도_durationMs가_아니라_목표_거리로_끊는다(linear):
+    """서버 기본값(0.12m/s x 600ms = 7cm)으로는 가속만 하다 끝나 실측
+    2~3cm 밖에 못 갔다. 좌표 등록용 조작에는 너무 짧다."""
     command = parse_drive_command(
         payload(linearMps=linear, angularRps=0.0, durationMs=600)
     )
 
-    assert hold_seconds(command, TURN_22_5) == pytest.approx(0.6)
+    # 0.15m 를 0.12m/s 로 가면 1.25초. 서버의 600ms 가 아니다.
+    assert hold(command) == pytest.approx(1.25)
 
 
-def test_직진하며_도는_명령은_시간으로_끊는다():
-    """각도로 끊는 건 제자리 회전뿐이다. 곡선 주행은 이동 거리가 얽혀 있어
-    각도만으로 유지 시간을 정할 수 없다."""
+def test_직진_속도가_빠르면_유지_시간이_짧아진다():
+    """거리가 고정이므로 시간은 속도에 반비례해야 한다."""
+    slow = parse_drive_command(payload(linearMps=0.06, angularRps=0.0))
+    fast = parse_drive_command(payload(linearMps=0.24, angularRps=0.0))
+
+    assert hold(slow) == pytest.approx(4 * hold(fast))
+
+
+def test_직진하며_도는_명령은_서버_durationMs를_따른다():
+    """거리와 각도가 동시에 얽혀 있어 한쪽만으로 유지 시간을 정할 수 없다.
+    곡선 주행은 앱 버튼이 만들지 않으므로 서버 값을 그대로 존중한다."""
     command = parse_drive_command(
         payload(linearMps=0.12, angularRps=0.6, durationMs=600)
     )
 
-    assert hold_seconds(command, TURN_22_5) == pytest.approx(0.6)
+    assert hold(command) == pytest.approx(0.6)
 
 
 def test_STOP은_유지_시간이_0이다():
@@ -193,7 +208,7 @@ def test_STOP은_유지_시간이_0이다():
         payload(direction="STOP", linearMps=0.0, angularRps=0.0, durationMs=0)
     )
 
-    assert hold_seconds(command, TURN_22_5) == 0.0
+    assert hold(command) == 0.0
 
 
 def test_DriveCommand는_불변이다():
