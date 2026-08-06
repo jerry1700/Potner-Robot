@@ -66,6 +66,27 @@ def parse_drive_command(payload: Union[str, bytes]) -> DriveCommand:
     )
 
 
+def hold_seconds(command: DriveCommand, turn_angle_rad: float) -> float:
+    """명령을 유지할 시간(초).
+
+    제자리 회전(직진 성분 0, 회전 성분 있음)이면 서버가 준 ``durationMs`` 를
+    쓰지 않고 목표 각도를 돌 만큼만 유지합니다. 앱의 좌/우 버튼 한 번이
+    항상 같은 각도를 돌아야 방향을 가늠하며 조작할 수 있기 때문입니다.
+
+    직진·후진·정지는 서버가 준 ``durationMs`` 를 그대로 씁니다.
+
+    ★ 회전 각도는 ``wheel_separation`` 실측에 의존합니다. 이 값이 틀리면
+      명령한 각속도와 실제 각속도가 어긋나 회전량이 비례해서 틀어집니다.
+      오도메트리로 닫아도 같은 상수를 쓰므로 오차가 상쇄되지 않습니다.
+
+    Args:
+        turn_angle_rad: 좌/우 버튼 한 번에 돌 각도 (rad)
+    """
+    if command.linear_mps == 0.0 and command.angular_rps != 0.0:
+        return abs(turn_angle_rad / command.angular_rps)
+    return command.duration_ms / 1000.0
+
+
 def drive_command_json(command: DriveCommand) -> str:
     """검증된 명령을 ROS String으로 전달할 때 쓰는 내부 JSON."""
     body = asdict(command)

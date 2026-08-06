@@ -1,6 +1,7 @@
 """서버와 Jetson 사이 수동 주행 명령 MQTT 계약 검증."""
 
 import json
+import math
 
 import pytest
 
@@ -9,9 +10,12 @@ from potner_bridge.drive_contract import (
     DRIVE,
     DriveCommand,
     drive_command_json,
+    hold_seconds,
     parse_drive_command,
     parse_internal_drive_command,
 )
+
+TURN_22_5 = math.radians(22.5)
 
 REQUEST_ID = "3ff0d4af-9217-4473-b7a4-f8ff8d420daa"
 
@@ -139,6 +143,57 @@ def test_손상된_내부_명령은_거부한다():
         parse_internal_drive_command(json.dumps(broken))
 
     assert error.value.code == "INVALID_INTERNAL_COMMAND"
+
+
+# --- 유지 시간 (좌/우는 각도로, 직진은 시간으로) ---
+
+
+@pytest.mark.parametrize("angular", [0.6, -0.6])
+def test_제자리_회전은_durationMs가_아니라_목표_각도로_끊는다(angular):
+    """버튼 한 번이 늘 같은 각도를 돌아야 방향을 가늠하며 조작할 수 있다."""
+    command = parse_drive_command(
+        payload(direction="LEFT", linearMps=0.0, angularRps=angular, durationMs=600)
+    )
+
+    # 22.5도(0.3927rad)를 0.6rad/s 로 돌면 약 0.654초. 서버의 600ms 가 아니다.
+    assert hold_seconds(command, TURN_22_5) == pytest.approx(0.6545, abs=1e-3)
+
+
+def test_회전_각속도가_빠르면_유지_시간이_짧아진다():
+    """각도가 고정이므로 시간은 각속도에 반비례해야 한다."""
+    slow = parse_drive_command(payload(linearMps=0.0, angularRps=0.3))
+    fast = parse_drive_command(payload(linearMps=0.0, angularRps=1.2))
+
+    assert hold_seconds(slow, TURN_22_5) == pytest.approx(
+        4 * hold_seconds(fast, TURN_22_5)
+    )
+
+
+@pytest.mark.parametrize("linear", [0.12, -0.12])
+def test_직진_후진은_서버가_준_durationMs를_그대로_쓴다(linear):
+    command = parse_drive_command(
+        payload(linearMps=linear, angularRps=0.0, durationMs=600)
+    )
+
+    assert hold_seconds(command, TURN_22_5) == pytest.approx(0.6)
+
+
+def test_직진하며_도는_명령은_시간으로_끊는다():
+    """각도로 끊는 건 제자리 회전뿐이다. 곡선 주행은 이동 거리가 얽혀 있어
+    각도만으로 유지 시간을 정할 수 없다."""
+    command = parse_drive_command(
+        payload(linearMps=0.12, angularRps=0.6, durationMs=600)
+    )
+
+    assert hold_seconds(command, TURN_22_5) == pytest.approx(0.6)
+
+
+def test_STOP은_유지_시간이_0이다():
+    command = parse_drive_command(
+        payload(direction="STOP", linearMps=0.0, angularRps=0.0, durationMs=0)
+    )
+
+    assert hold_seconds(command, TURN_22_5) == 0.0
 
 
 def test_DriveCommand는_불변이다():

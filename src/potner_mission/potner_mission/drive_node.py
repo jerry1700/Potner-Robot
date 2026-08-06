@@ -6,9 +6,14 @@ mission_manager 의 자율주행 상태머신(IDLE/NAVIGATING/DOCKING/...)과는
 Nav2 100보다 높고 safety 255보다 낮음, config/twist_mux.yaml)으로 흘려보낼
 뿐입니다.
 
-durationMs 가 지나면 스스로 0 Twist 를 발행해 멈춥니다. base_driver 의
-cmd_vel_timeout(기본 0.5초) 안전장치에만 기대면, durationMs(기본 600ms)가
-그보다 길 때 버튼 한 번에 로봇이 멈췄다 다시 움직이는 것처럼 보입니다.
+직진·후진은 서버가 준 durationMs 만큼, **좌/우 회전은 turn_angle_deg
+(기본 22.5도)만큼** 돌고 스스로 0 Twist 를 발행해 멈춥니다. 회전을 시간이
+아니라 각도로 끊는 이유는, 버튼 한 번이 늘 같은 각도를 돌아야 사람이
+방향을 가늠하며 조작할 수 있기 때문입니다 (22.5도면 열여섯 번에 한 바퀴).
+
+base_driver 의 cmd_vel_timeout(기본 0.5초) 안전장치에만 기대면, 유지
+시간이 그보다 길 때 버튼 한 번에 로봇이 멈췄다 다시 움직이는 것처럼
+보입니다. 그래서 자체 정지를 따로 둡니다.
 
 ★ durationMs 동안 딱 한 번만 발행하고 가만히 있으면 안 됩니다. twist_mux
   의 teleop 타임아웃(0.5초, config/twist_mux.yaml)이 durationMs(기본
@@ -21,6 +26,8 @@ drive는 회신(``result/drive``) 계약이 없습니다 — 서버의
 보내도 조용히 버려집니다.
 """
 
+import math
+
 import rclpy
 from geometry_msgs.msg import Twist
 from rclpy.duration import Duration
@@ -28,7 +35,7 @@ from rclpy.node import Node
 from std_msgs.msg import String
 
 from potner_bridge.command_result import CommandError
-from potner_bridge.drive_contract import parse_internal_drive_command
+from potner_bridge.drive_contract import hold_seconds, parse_internal_drive_command
 
 # twist_mux 의 teleop 타임아웃(0.5초)보다 확실히 짧아야, durationMs 동안
 # twist_mux 가 이 입력을 죽은 것으로 보고 먼저 끊는 일이 없습니다.
@@ -38,6 +45,13 @@ KEEPALIVE_PERIOD_S = 0.2
 class DriveNode(Node):
     def __init__(self):
         super().__init__("drive_node")
+
+        # 좌/우 버튼 한 번에 도는 각도. 22.5도면 열여섯 번에 한 바퀴라
+        # 방향을 눈으로 가늠하며 조작하기 좋습니다.
+        self.declare_parameter("turn_angle_deg", 22.5)
+        self._turn_angle_rad = math.radians(
+            self.get_parameter("turn_angle_deg").value
+        )
 
         self._twist_pub = self.create_publisher(Twist, "cmd_vel_teleop", 10)
         self.create_subscription(
@@ -75,10 +89,9 @@ class DriveNode(Node):
         self._active_angular = command.angular_rps
         self._publish_twist(self._active_linear, self._active_angular)
 
-        if command.duration_ms > 0:
-            self._stop_at = self.get_clock().now() + Duration(
-                seconds=command.duration_ms / 1000.0
-            )
+        hold_s = hold_seconds(command, self._turn_angle_rad)
+        if hold_s > 0.0:
+            self._stop_at = self.get_clock().now() + Duration(seconds=hold_s)
             self._ensure_keepalive_timer()
         else:
             # STOP: 재발행할 것도 없으니 바로 끝냅니다.
@@ -88,7 +101,7 @@ class DriveNode(Node):
         self.get_logger().info(
             f"주행 명령 실행: direction={command.direction}, "
             f"linear={command.linear_mps}, angular={command.angular_rps}, "
-            f"durationMs={command.duration_ms}"
+            f"유지={hold_s:.3f}초"
         )
 
     def _ensure_keepalive_timer(self):
