@@ -17,7 +17,9 @@ class DriveConfig:
 
     wheel_diameter: float = 0.060  # 확정 — 60mm 구동 바퀴
     wheel_separation: float = 0.200  # TODO 실측 — 좌우 바퀴 중심 간 거리 (m)
-    counts_per_rev: int = 1440  # 확정 — FIT0403 출력축 CPR
+    # 사양서의 "1440 CPR" 은 채널당 사이클이고, 쿼드러처 4배수를 곱해야
+    # 실제 카운트가 됩니다. 손으로 한 바퀴 돌려 5,941카운트로 실측 확인.
+    counts_per_rev: int = 5760  # 실측 — 1440 CPR x 4 (쿼드러처)
     max_wheel_speed: float = 0.25  # 안전 제한 (m/s). 이론 최대는 약 0.48
 
     @property

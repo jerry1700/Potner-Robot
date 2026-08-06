@@ -268,7 +268,10 @@ ros2 action send_goal /dock_to_station potner_msgs/action/DockToStation \
 | `marker_size` | 인쇄한 ArUco 마커 실측. 도킹 거리 오차의 원인 |
 | `focal_length_px` | `cv2.calibrateCamera` 로 BRIO 100 캘리브레이션 |
 
-`counts_per_rev: 1440` 은 FIT0403 사양에서 나온 **확정값**이니 건드리지 마세요.
+`counts_per_rev: 5760` 은 **실측값**입니다. 사양서의 "1440 CPR" 은 채널당
+사이클 수이고 쿼드러처 4배수를 곱해야 실제 카운트가 됩니다. 손으로 바퀴를
+한 바퀴 돌려 5,941카운트로 확인했습니다. **1440 으로 되돌리면 로봇이 명령의
+1/4 속도로만 움직이고 오도메트리도 4배 틀어집니다.**
 
 ## 테스트
 

@@ -11,7 +11,7 @@ base_driver:
 
     wheel_diameter: 0.060     # 확정 — 60mm 로봇용 구동 바퀴
     wheel_separation: 0.200   # TODO 실측 (m) — 좌우 바퀴 중심 간 거리
-    counts_per_rev: 1440      # 확정 — FIT0403 출력축 CPR
+    counts_per_rev: 5760      # 실측 — 1440 CPR x 4 (쿼드러처). kinematics.py 참고
 
     # 안전 제한. 122RPM x 60mm 바퀴면 이론 최대는 약 0.38 m/s 지만,
     # 화분을 이고 다니는 로봇이라 절반 이하로 묶습니다. 급가속하면
