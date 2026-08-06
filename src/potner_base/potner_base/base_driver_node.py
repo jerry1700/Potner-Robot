@@ -128,7 +128,7 @@ class BaseDriver(Node):
 
         # 워치독: 상위 노드가 조용하면 멈춥니다. Nav2가 죽어도 로봇은 서야 합니다.
         idle = (now - self._last_cmd_time).nanoseconds * 1e-9
-        if idle > self.cmd_vel_timeout:
+        if idle > self.cmd_vel_timeout or max(abs(self._target[0]), abs(self._target[1])) < 1e-6:
             self._target = (0.0, 0.0)
 
         # 목표가 0이면 V,0,0 이 아니라 S 를 보냅니다. V,0,0 은 펌웨어 PID를
