@@ -29,7 +29,14 @@ constexpr int PIN_R_ENC_A = 36;
 constexpr int PIN_R_ENC_B = 39;
 
 // ===== 하드웨어 상수 =======================================================
-constexpr float COUNTS_PER_REV   = 1440.0f;  // FIT0403 출력축 (확정값)
+// ★ 실측값입니다. 사양서의 "1440 CPR" 은 채널당 사이클 수이고, ESP32Encoder
+//   의 attachFullQuad() 는 한 사이클을 4카운트로 세므로 실제로는 4배입니다.
+//   바퀴에 표시하고 손으로 정확히 한 바퀴 돌려 5,941카운트를 확인했습니다
+//   (손 오차 3%). 예전 폭주 로그의 11,100카운트/초도 이 값으로 환산해야
+//   0.36m/s 로 무부하 최고속도(122RPM=0.383m/s)와 맞아떨어집니다.
+//   1440 으로 되돌리면 펌웨어가 속도를 4배로 착각해 실제로는 명령의 1/4
+//   속도로만 움직입니다. src/potner_base/kinematics.py 와 반드시 같아야 합니다.
+constexpr float COUNTS_PER_REV   = 5760.0f;  // 1440 CPR x 4 (쿼드러처), 실측 확인
 constexpr float WHEEL_DIAMETER_M = 0.060f;   // 확정 — 60mm 구동 바퀴
 constexpr float MAX_WHEEL_MPS    = 0.25f;
 

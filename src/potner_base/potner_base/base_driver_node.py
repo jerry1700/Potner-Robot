@@ -35,7 +35,7 @@ class BaseDriver(Node):
         self.declare_parameter("baud_rate", 115200)
         self.declare_parameter("wheel_diameter", 0.060)
         self.declare_parameter("wheel_separation", 0.200)
-        self.declare_parameter("counts_per_rev", 1440)
+        self.declare_parameter("counts_per_rev", 5760)
         self.declare_parameter("max_wheel_speed", 0.25)
         self.declare_parameter("cmd_vel_timeout", 0.5)
         self.declare_parameter("publish_rate", 30.0)
