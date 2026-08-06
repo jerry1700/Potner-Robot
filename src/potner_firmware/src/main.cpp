@@ -2,8 +2,9 @@
  * Potner 저수준 모터 컨트롤러 (ESP32 DevKit V1)
  *
  * 젯슨이 못 하는 일만 여기서 합니다.
- *   - 엔코더 쿼드러처 디코딩: 초당 약 2,930카운트 x 2. 리눅스 파이썬으로는
- *     카운트를 흘립니다. ESP32의 PCNT는 하드웨어라 CPU 개입 없이 셉니다.
+ *   - 엔코더 쿼드러처 디코딩: 안전 상한(0.25m/s)에서 초당 약 7,600카운트 x 2,
+ *     무부하 최고속도면 11,700카운트 x 2. 리눅스 파이썬으로는 카운트를
+ *     흘립니다. ESP32의 PCNT는 하드웨어라 CPU 개입 없이 셉니다.
  *   - 바퀴 속도 PID: 주기가 흔들리면 안 되는 제어 루프.
  *   - 20kHz PWM: 가청 대역 밖이라 모터가 조용합니다. PCA9685는 1.5kHz가
  *     한계라 낑낑 소리가 납니다.
@@ -75,6 +76,15 @@ constexpr float KD = 0.0f;
 constexpr float FF_STATIC = 0.15f;        // 정지 마찰 돌파에 필요한 최소 duty
 constexpr float FF_SLOPE = 0.85f;         // 속도 비례분
 constexpr float NO_LOAD_MAX_MPS = 0.383f; // 무부하 122RPM 환산 바퀴 선속도
+
+// 피드포워드가 정상상태 duty 를 직접 주게 됐으므로 적분은 트림만 합니다.
+// 예전 ±1.0(duty ±1.6 어치)은 이제 필요 없고, 오히려 위험합니다 — 엔코더
+// 선이 빠져 measured 가 0으로 얼어붙으면 적분이 끝까지 감겨 바퀴가 전속으로
+// 폭주합니다(실기에서 당한 고장 모드). 권한을 좁혀 그 폭을 제한합니다.
+constexpr float INTEGRAL_LIMIT = 0.15f;  // duty ±0.24 어치
+// 총출력을 피드포워드 근방으로 묶는 상한. 정상 동작에서는 걸리지 않고,
+// 엔코더가 죽었을 때만 duty 가 1.0 까지 가는 것을 막습니다.
+constexpr float PID_HEADROOM = 0.30f;
 
 ESP32Encoder encLeft;
 ESP32Encoder encRight;
@@ -153,14 +163,18 @@ float updatePid(Wheel &wheel, int64_t count, float dt) {
 
   // 적분 와인드업 방지. 바퀴가 걸려 못 움직일 때 적분항이 무한히 커져서
   // 장애물이 치워지는 순간 로봇이 튀어나가는 걸 막습니다.
-  wheel.integral = constrain(wheel.integral, -1.0f, 1.0f);
+  wheel.integral = constrain(wheel.integral, -INTEGRAL_LIMIT, INTEGRAL_LIMIT);
 
   float derivative = (error - wheel.prev_error) / dt;
   wheel.prev_error = error;
 
-  float output = KP * error + KI * wheel.integral + KD * derivative;
-  return constrain(
-      feedforward(wheel.target_mps) + output / 1000.0f, -1.0f, 1.0f);
+  // 피드포워드가 정상상태를 담당하고 PID 는 그 위에서 트림만 합니다. 총출력을
+  // 피드포워드 근방으로 묶어두면 엔코더가 죽어 measured 가 0으로 얼어붙어도
+  // duty 가 1.0 까지 가지 않습니다. 정상 동작에서는 이 상한에 안 걸립니다.
+  float ff = feedforward(wheel.target_mps);
+  float pid = (KP * error + KI * wheel.integral + KD * derivative) / 1000.0f;
+  float ceiling = fabs(ff) + PID_HEADROOM;
+  return constrain(ff + pid, -ceiling, ceiling);
 }
 
 void stopAll() {

@@ -20,7 +20,8 @@ class DriveConfig:
     # 사양서의 "1440 CPR" 은 채널당 사이클이고, 쿼드러처 4배수를 곱해야
     # 실제 카운트가 됩니다. 손으로 한 바퀴 돌려 5,941카운트로 실측 확인.
     counts_per_rev: int = 5760  # 실측 — 1440 CPR x 4 (쿼드러처)
-    max_wheel_speed: float = 0.25  # 안전 제한 (m/s). 이론 최대는 약 0.48
+    # 안전 제한 (m/s). 무부하 최고속도는 122RPM x 지름 60mm = 약 0.383
+    max_wheel_speed: float = 0.25
 
     @property
     def wheel_circumference(self) -> float:

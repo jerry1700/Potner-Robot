@@ -38,9 +38,10 @@ from std_msgs.msg import String
 from potner_bridge.command_result import CommandError
 from potner_bridge.drive_contract import hold_seconds, parse_internal_drive_command
 
-# twist_mux 의 teleop 타임아웃(0.5초)보다 확실히 짧아야, durationMs 동안
-# twist_mux 가 이 입력을 죽은 것으로 보고 먼저 끊는 일이 없습니다.
-KEEPALIVE_PERIOD_S = 0.2
+# 재발행 주기의 상한. twist_mux 의 teleop 타임아웃(0.5초)보다 확실히 짧아야
+# 유지 중에 twist_mux 가 이 입력을 죽은 것으로 보고 먼저 끊지 않습니다.
+# 실제 주기는 유지 시간을 정수 등분해서 정하므로 이 값보다 짧아집니다.
+MAX_KEEPALIVE_PERIOD_S = 0.1
 
 
 class DriveNode(Node):
@@ -99,7 +100,7 @@ class DriveNode(Node):
         )
         if hold_s > 0.0:
             self._stop_at = self.get_clock().now() + Duration(seconds=hold_s)
-            self._ensure_keepalive_timer()
+            self._restart_keepalive_timer(hold_s)
         else:
             # STOP: 재발행할 것도 없으니 바로 끝냅니다.
             self._stop_at = None
@@ -111,17 +112,32 @@ class DriveNode(Node):
             f"유지={hold_s:.3f}초"
         )
 
-    def _ensure_keepalive_timer(self):
-        # rclpy 타이머는 반복 실행이라, 이미 돌고 있으면 새로 만들지
-        # 않습니다 — 겹쳐서 여러 개 도는 걸 막습니다.
-        if self._keepalive_timer is None:
-            self._keepalive_timer = self.create_timer(
-                KEEPALIVE_PERIOD_S, self._on_keepalive
-            )
+    def _restart_keepalive_timer(self, hold_s):
+        """유지 시간을 정수 등분해 마지막 틱이 정확히 끝에 떨어지게 합니다.
+
+        정지 판정이 이 틱에서만 일어나므로 **주기가 곧 유지 시간 오차**입니다.
+        주기를 0.2초로 고정해 두면 0.654초 회전 명령이 실제로는 0.8초 유지돼
+        각도가 22%(22.5도 -> 27.5도) 커집니다. 유지 시간의 약수로 잡으면 그
+        오차가 사라집니다.
+        """
+        self._destroy_keepalive_timer()
+        ticks = max(1, math.ceil(hold_s / MAX_KEEPALIVE_PERIOD_S))
+        self._keepalive_timer = self.create_timer(
+            hold_s / ticks, self._on_keepalive
+        )
 
     def _cancel_keepalive_timer(self):
+        # 타이머 콜백 안에서도 불립니다. 실행 중인 타이머를 그 자리에서
+        # 파괴하면 rclpy 가 불안정해지므로 여기서는 멈추기만 하고, 실제
+        # 파괴는 다음 명령의 _restart 에서 합니다.
         if self._keepalive_timer is not None:
             self._keepalive_timer.cancel()
+
+    def _destroy_keepalive_timer(self):
+        # cancel 만 하고 두면 취소된 타이머가 executor 에 계속 쌓입니다.
+        if self._keepalive_timer is not None:
+            self._keepalive_timer.cancel()
+            self.destroy_timer(self._keepalive_timer)
             self._keepalive_timer = None
 
     def _on_keepalive(self):
