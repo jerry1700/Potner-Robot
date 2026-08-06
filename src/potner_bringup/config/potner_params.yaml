@@ -80,7 +80,7 @@ speaker:
 
 safety:
   ros__parameters:
-    scan_stop_distance: 0.25    # LiDAR 정지 거리 (m)
+    scan_stop_distance: 0.18  # LiDAR 정지 거리 (m)
     bumper_stop_distance: 0.12  # 범퍼 ToF 정지 거리 (m)
     front_arc_deg: 60.0         # 정면으로 볼 각도 폭
     clear_hysteresis: 0.08      # 해제 여유 (m) — 경계에서 깜빡임 방지
