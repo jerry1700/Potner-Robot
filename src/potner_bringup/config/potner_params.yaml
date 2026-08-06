@@ -30,8 +30,8 @@ plant_sensors:
     # 가짜 값을 흘리면 엉뚱한 급수 임무가 떠서 로봇이 계속 물을 받으러 갑니다.
     #   1. 센서를 공기 중에 두고 원시값 확인 -> moisture_raw_dry
     #   2. 표시선 아래까지 물에 담그고 확인   -> moisture_raw_wet
-    moisture_raw_dry: 0
-    moisture_raw_wet: 0
+    moisture_raw_dry: 24000
+    moisture_raw_wet: 12000
 
     battery_cells: 4          # 젯슨팩 4S (모터팩은 3S)
 
