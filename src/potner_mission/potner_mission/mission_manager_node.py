@@ -171,9 +171,13 @@ class MissionManager(Node):
             )
             if self._finish_decision(decision):
                 return
-            self.greeting.arm(
-                self._now_s(), duration=float(command.wait_seconds)
-            )
+            # 인사 무장은 여기서 하지 않습니다 — GREETING 에 **도착한 뒤**
+            # 겁니다(_handle_nav_success). 여기서 걸면 시간창은 지금부터
+            # wait_seconds 인데 문 앞 대기 타이머는 도착부터 다시 세기
+            # 때문에, 이동 시간만큼 시간창이 앞에서 잘려 나갑니다. 이동이
+            # wait_seconds 보다 길면 도착하는 순간 이미 만료돼 있어서
+            # **한 번도 인사할 수 없습니다.** skip_navigation:true 로만
+            # 시험해서(이동 시간 0) 지금까지 드러나지 않았습니다.
             self._start_arrival_timeout(command.total_timeout_seconds)
             self.get_logger().info(
                 f"귀가 마중 시작: visitId={command.visit_id}, "
@@ -518,6 +522,10 @@ class MissionManager(Node):
             session = self._arrival.active
             self.get_logger().info("GREETING 도착. 사람을 기다립니다.")
             self._transition(MissionState.IDLE)
+            # 무장과 대기 타이머를 같은 자리에서 같은 값으로 겁니다. 둘이
+            # 다른 시점에서 시작하면 인사할 수 있는 구간과 문 앞에 서 있는
+            # 구간이 어긋납니다.
+            self.greeting.arm(self._now_s(), duration=float(session.wait_seconds))
             self._start_arrival_wait(session.wait_seconds)
             return
 
