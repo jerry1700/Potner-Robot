@@ -178,6 +178,32 @@ sudo udevadm control --reload-rules && sudo udevadm trigger
 `config/potner_params.yaml` 의 `base_driver.serial_port` 가 이 이름을
 씁니다.
 
+**카메라도 같은 문제가 있습니다.** UVC 웹캠은 영상용과 메타데이터용
+`/dev/video*` 노드를 함께 만들기 때문에 번호가 둘 이상 생기고, 어느 쪽이
+영상인지는 번호로 알 수 없습니다. 게다가 그 번호가 재부팅마다 바뀝니다.
+어긋나면 `v4l2_camera` 가 조용히 물러나고 `marker_detector` 는 영영 아무것도
+발행하지 않아서, 도킹이 15초 뒤 "마커를 찾지 못함" 으로 끝납니다 — 원인이
+카메라라는 단서가 어디에도 남지 않습니다.
+
+카메라만 꽂은 상태에서 아래 한 줄이면 규칙이 만들어집니다. 벤더·제품 ID를
+장치에서 직접 읽으므로 손으로 채워 넣을 값이 없습니다.
+
+```bash
+V=$(udevadm info -a -n /dev/video0 | grep -m1 'ATTRS{idVendor}' | tr -d ' "' | cut -d= -f3); P=$(udevadm info -a -n /dev/video0 | grep -m1 'ATTRS{idProduct}' | tr -d ' "' | cut -d= -f3); echo "SUBSYSTEM==\"video4linux\", ATTRS{idVendor}==\"$V\", ATTRS{idProduct}==\"$P\", ATTR{index}==\"0\", SYMLINK+=\"video_cam\"" | sudo tee /etc/udev/rules.d/99-potner-camera.rules
+```
+
+`ATTR{index}=="0"` 이 핵심입니다. 이게 없으면 같은 웹캠의 메타데이터 노드에도
+링크가 걸려서 둘 중 아무 쪽이나 잡힙니다.
+
+```bash
+sudo udevadm control --reload-rules && sudo udevadm trigger
+ls -l /dev/video_cam    # 링크가 생겼는지
+python3 -c "import cv2; cap=cv2.VideoCapture('/dev/video_cam'); ok,f=cap.read(); print(ok, f.shape if ok else ''); cap.release()"
+```
+
+`robot.launch.py` 의 `camera_device` 인자가 이 이름을 기본값으로 씁니다.
+규칙을 만들기 전이라면 `camera_device:=/dev/video0` 으로 넘기세요.
+
 ### 5. 단계별로 띄우기
 
 한 번에 다 켜면 무엇이 고장났는지 알 수 없습니다. 순서대로 확인하세요.

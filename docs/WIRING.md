@@ -50,7 +50,7 @@
 | 연결 | 대상 | 비고 |
 |---|---|---|
 | USB | LiDAR (YDLIDAR X4 Pro) | `/dev/ttyUSB*`, ESP32와 시리얼 번호로 구분 |
-| USB | 카메라 (BRIO 100) | |
+| USB | 카메라 (BRIO 100) | `/dev/video_cam` (udev 규칙으로 고정). UVC 라 `/dev/video*` 노드가 둘 이상 생겨 번호로는 못 고릅니다 |
 | USB | 사운드카드 → PAM8403 앰프 → 8Ω 스피커 | 확인: `aplay -l` (아래) |
 | USB | ESP32 | `/dev/ttyUSB_ESP32` (udev 규칙으로 고정) |
 | DP (액티브 어댑터) | 7인치 LCD 1024×600 | 젯슨에 HDMI 단자 없음. 패시브 어댑터 동작 안 함 → [`JETSON_DISPLAY.md`](JETSON_DISPLAY.md) |
