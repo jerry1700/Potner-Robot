@@ -157,6 +157,27 @@ person_detector:
     inference_period: 0.2    # 5Hz
     device: cuda
 
+# 귀가 인사 트리거. 카메라가 바닥 13cm 에 틸트 없이 달려 있어 사람은 발밖에
+# 안 보이므로(전신이 담기려면 5.73m), 라이다(바닥 52cm = 허벅지 높이)로
+# "배경에 없던 것이 나타났다" 를 봅니다. scan_presence.py 머리말 참고.
+#
+# ★ 표시된 값은 실기 스캔을 보고 조정해야 합니다. 아래 순서로 재세요:
+#     ros2 topic echo --once /scan | grep angle_increment   -> 각폭 계산의 분모
+#     ros2 bag record -o /tmp/scan_empty_5min /scan         -> 잡음 sigma
+#     ros2 bag record -o /tmp/scan_person_walkin /scan      -> 실제 거리·각폭
+scan_presence:
+  ros__parameters:
+    sector_deg: 100.0        # ★튜닝 — 뒤를 지나가는 사람은 배제
+    min_range_m: 0.40        # 확정 — safety 해제선 0.33m 바깥
+    max_range_m: 2.50        # ★튜닝 — 현관 깊이에 맞출 것
+    baseline_margin_m: 0.12  # ★튜닝 — 라이다 잡음 실측 후 확정
+    leg_width_m: 0.12
+    width_tolerance: 0.5     # ★튜닝 — 기대 각폭의 0.5~2배만 인정
+    persist_scans: 3         # 확정 — 11.4Hz 에서 263ms
+    baseline_scans: 10
+    settle_seconds: 1.5      # ★튜닝 — 정지 후 배경 잡기까지
+    motion_epsilon: 0.02
+
 face_display:
   ros__parameters:
     # 0 이면 연결된 화면의 해상도를 커널에서 읽어 씁니다

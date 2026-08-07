@@ -31,12 +31,26 @@ def generate_launch_description():
 
     use_camera = LaunchConfiguration("use_camera")
     use_lidar = LaunchConfiguration("use_lidar")
+    camera_device = LaunchConfiguration("camera_device")
+    use_person_detector = LaunchConfiguration("use_person_detector")
 
     robot_description = ParameterValue(Command(["xacro ", xacro_path]), value_type=str)
 
     return LaunchDescription([
         DeclareLaunchArgument("use_camera", default_value="true"),
         DeclareLaunchArgument("use_lidar", default_value="true"),
+        # udev 규칙이 만드는 고정 이름입니다 (README "USB 장치 이름 고정").
+        # /dev/video0 을 그대로 쓰면 안 되는 이유가 두 가지입니다. UVC 웹캠은
+        # 영상용과 메타데이터용 노드를 함께 만들어서 번호가 둘 이상 생기고,
+        # 그 번호가 꽂는 순서와 부팅 타이밍에 따라 바뀝니다. 어긋나면
+        # v4l2_camera 가 "No such file or directory" 로 조용히 물러나고,
+        # marker_detector 는 영영 아무것도 발행하지 않아 도킹이 15초 뒤
+        # "마커를 찾지 못함" 으로 끝납니다 — 원인이 카메라라는 단서가 없습니다.
+        # 규칙을 아직 안 만들었으면 camera_device:=/dev/video0 으로 넘기세요.
+        DeclareLaunchArgument("camera_device", default_value="/dev/video_cam"),
+        # YOLO 사람 인지. 젯슨에 ultralytics 가 없고, 있어도 카메라 높이 탓에
+        # 사람을 제대로 못 봅니다. 인사는 scan_presence 가 맡습니다.
+        DeclareLaunchArgument("use_person_detector", default_value="false"),
 
         # ---- 형상: URDF로부터 고정 TF를 발행합니다. Nav2의 전제조건.
         Node(
@@ -100,7 +114,7 @@ def generate_launch_description():
             executable="v4l2_camera_node",
             condition=IfCondition(use_camera),
             parameters=[{
-                "video_device": "/dev/video0",
+                "video_device": ParameterValue(camera_device, value_type=str),
                 "image_size": [640, 480],
             }],
         ),
@@ -125,9 +139,23 @@ def generate_launch_description():
             executable="marker_detector",
             parameters=[params],
         ),
+        # 귀가 인사 트리거. 카메라(바닥 13cm, 틸트 0)로는 사람 발밖에 안
+        # 보여서 라이다(바닥 52cm)로 봅니다 — scan_presence.py 머리말 참고.
+        Node(
+            package="potner_perception",
+            executable="scan_presence",
+            parameters=[params],
+            output="screen",
+        ),
+        # YOLO 경로. 기본으로 끕니다 — ultralytics 가 없으면 아무것도
+        # 발행하지 않아 무해하지만, 누가 설치하면 scan_presence 와 함께
+        # perception/person_present 를 발행하게 됩니다. 인사는 한 번 쏘면
+        # 시간창이 닫히고 HOME 복귀까지 시작되므로(mission_manager
+        # _on_person), 자율 발화 경로가 둘이면 오발 확률이 두 배입니다.
         Node(
             package="potner_perception",
             executable="person_detector",
+            condition=IfCondition(use_person_detector),
             parameters=[params],
         ),
 
