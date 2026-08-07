@@ -168,7 +168,7 @@ person_detector:
 scan_presence:
   ros__parameters:
     sector_deg: 100.0        # ★튜닝 — 뒤를 지나가는 사람은 배제
-    min_range_m: 0.40        # 확정 — safety 해제선 0.33m 바깥
+    min_range_m: 0.40        # 확정 — safety 해제선(0.18+0.08) 바깥
     max_range_m: 2.50        # ★튜닝 — 현관 깊이에 맞출 것
     baseline_margin_m: 0.12  # ★튜닝 — 라이다 잡음 실측 후 확정
     leg_width_m: 0.12
