@@ -74,6 +74,7 @@ NODES = [
     ("docking_server", "potner_docking", "docking_server_node"),
     ("marker_detector", "potner_perception", "marker_detector_node"),
     ("person_detector", "potner_perception", "person_detector_node"),
+    ("scan_presence", "potner_perception", "scan_presence_node"),
     ("mqtt_bridge", "potner_bridge", "mqtt_bridge_node"),
 ]
 
@@ -131,6 +132,38 @@ def test_목적지_좌표는_로봇_설정에_두지_않는다():
         assert stale not in params, (
             f"{stale} 는 서버가 판단합니다. 로봇 임계값이 되살아났습니다."
         )
+
+
+def test_감지_기본값이_설정파일과_일치한다():
+    """라이다 사람 감지 임계값이 세 곳에 있습니다.
+
+    PresenceConfig(라이브러리·테스트) / declare_parameter(단독 실행) /
+    yaml(운영). 실기에서 튜닝하다 보면 yaml 만 고치기 쉬운데, 그러면
+    CI 테스트는 낡은 dataclass 값으로 통과해 버립니다.
+    """
+    from potner_perception.scan_presence import PresenceConfig
+
+    params = load_params()["scan_presence"]["ros__parameters"]
+    config = PresenceConfig()
+
+    for name, expected in params.items():
+        actual = getattr(config, name)
+        if isinstance(expected, float) or isinstance(actual, float):
+            assert float(actual) == pytest.approx(float(expected)), name
+        else:
+            assert actual == expected, name
+
+
+def test_감지_하한은_안전정지_해제선_바깥이다():
+    """safety 가 막혔다가 풀리는 선(0.25 + 히스테리시스 0.08 = 0.33m)보다
+    안쪽을 감지 대역으로 쓰면, 사람을 인식하는 순간이 곧 비상정지가 걸린
+    순간이라 HOME 복귀 주행이 막힙니다."""
+    from potner_perception.scan_presence import PresenceConfig
+
+    safety = load_params()["safety"]["ros__parameters"]
+    clear_line = safety["scan_stop_distance"] + safety["clear_hysteresis"]
+
+    assert PresenceConfig().min_range_m > clear_line
 
 
 def test_마커_크기가_설정파일과_일치한다():
