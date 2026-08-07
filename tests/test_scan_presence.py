@@ -117,10 +117,11 @@ def test_부채꼴_밖의_변화는_무시한다():
     assert find_intrusions(baseline, behind, PresenceConfig()) == []
 
 
-def test_안전정지_구역인_0_33미터_안쪽은_무시한다():
-    """safety 해제선(0.25 + 히스테리시스 0.08)이 0.33m 다.
+def test_하한보다_가까운_것은_무시한다():
+    """min_range_m 안쪽은 safety 가 이미 막고 있는 구역이다.
 
-    그 안쪽은 비상정지가 걸린 구역이라 검출 대역으로 쓰면 안 된다.
+    거기서 사람을 인식해봐야 그 순간이 곧 로봇이 못 움직이는 순간이다.
+    (하한이 safety 해제선 바깥인지는 test_config_consistency 가 확인한다.)
     """
     baseline = [EMPTY_DISTANCE] * BEAMS
 

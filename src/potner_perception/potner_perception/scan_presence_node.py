@@ -34,10 +34,6 @@ from potner_perception.scan_presence import (
     ScanPresenceDetector,
 )
 
-# safety 가 막혔다가 풀리는 선 (scan_stop_distance 0.25 + clear_hysteresis 0.08).
-# 배경에 이보다 가까운 것이 상시 잡히면 비상정지가 영구히 걸린 상태입니다.
-SAFETY_CLEAR_M = 0.33
-
 
 class ScanPresence(Node):
     def __init__(self):
@@ -129,18 +125,25 @@ class ScanPresence(Node):
         **safety 가 영구히 막혀 로봇이 못 움직이는** 물리 문제라서, 조용히
         넘기면 원인을 찾는 데 며칠이 걸립니다. ydlidar.yaml 의
         ``ignore_array`` 가 비어 있어 자기 가림 마스킹이 하나도 없습니다.
+
+        기준선은 ``min_range_m`` 을 그대로 씁니다. safety 의 해제선을 여기에
+        따로 적으면 그쪽 값이 바뀔 때 같이 안 바뀌어 낡습니다 — 실제로
+        ``scan_stop_distance`` 가 0.25 에서 0.18 로 바뀐 적이 있습니다.
+        ``min_range_m`` 이 해제선 바깥이라는 것은
+        ``tests/test_config_consistency.py`` 가 yaml 을 읽어 강제합니다.
         """
+        limit = self._detector.config.min_range_m
         close = [
             value
             for value in self._detector.baseline
-            if value is not None and value < SAFETY_CLEAR_M
+            if value is not None and value < limit
         ]
         self.get_logger().info(f"배경 수집 완료 (빔 {len(self._detector.baseline)}개)")
 
         if close and not self._warned_self_occlusion:
             self._warned_self_occlusion = True
             self.get_logger().warn(
-                f"배경에 {SAFETY_CLEAR_M}m 안쪽 값이 {len(close)}개 있습니다 "
+                f"배경에 {limit:.2f}m 안쪽 값이 {len(close)}개 있습니다 "
                 f"(가장 가까운 것 {min(close):.2f}m). 로봇 자신의 부품이 스캔 "
                 "평면에 들어와 있으면 safety 가 영구히 막힙니다 — "
                 "ros2 topic echo /safety/blocked 로 확인하세요."

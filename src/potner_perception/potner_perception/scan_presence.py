@@ -52,8 +52,10 @@ class PresenceConfig:
     # 정면 부채꼴 폭. 카메라 화각 40.1도보다 넓게 두되 360도는 아닙니다 —
     # 뒤쪽을 지나가는 사람에게 인사하면 안 됩니다.
     sector_deg: float = 100.0
-    # safety 의 해제선(0.25 + 히스테리시스 0.08 = 0.33m) 바깥에서만 봅니다.
-    # 그 안쪽은 비상정지가 걸린 구역이라 검출 대역으로 쓰면 안 됩니다.
+    # safety 의 해제선(scan_stop_distance + clear_hysteresis) 바깥에서만
+    # 봅니다. 그 안쪽은 비상정지가 걸린 구역이라, 사람을 인식하는 순간이 곧
+    # 로봇이 못 움직이는 순간이 됩니다. 두 값이 어긋나지 않는지는
+    # tests/test_config_consistency.py 가 yaml 을 읽어 확인합니다.
     min_range_m: float = 0.40
     max_range_m: float = 2.50
     # 배경보다 이만큼은 가까워져야 "새로 생긴 것"입니다. 라이다 잡음과
