@@ -112,11 +112,43 @@ def test_도킹_게인_기본값이_설정파일과_일치한다():
     params = load_params()["docking_server"]["ros__parameters"]
     gains = DockingGains()
 
-    assert gains.kp_lateral == pytest.approx(params["kp_lateral"])
-    assert gains.kp_yaw == pytest.approx(params["kp_yaw"])
-    assert gains.approach_speed == pytest.approx(params["approach_speed"])
-    assert gains.max_angular == pytest.approx(params["max_angular"])
-    assert gains.target_distance == pytest.approx(params["target_distance"])
+    for name in (
+        "kp_lateral",
+        "kp_yaw",
+        "approach_speed",
+        "max_angular",
+        "target_distance",
+        "aim_offset_px_per_deg",
+        "aim_offset_distance",
+        "aim_offset_max_px",
+        "turn_after_dock_deg",
+        "turn_speed",
+        "turn_slow_angle_deg",
+        "turn_min_speed",
+        "turn_stop_margin_deg",
+    ):
+        assert getattr(gains, name) == pytest.approx(params[name]), name
+
+
+def test_도킹_시한_기본값이_설정파일과_일치한다():
+    """SessionLimits 는 노드가 yaml 값으로 덮어쓰지만, 테스트와 시뮬레이션은
+    dataclass 기본값으로 돈다. 두 세계가 다른 값을 보면 CI 에서 통과한
+    동작이 실기에서 재현되지 않는다."""
+    from potner_docking.session import SessionLimits
+
+    params = load_params()["docking_server"]["ros__parameters"]
+    limits = SessionLimits()
+
+    for name in (
+        "marker_lost_timeout",
+        "docking_timeout",
+        "confirm_timeout",
+        "search_timeout",
+        "turn_timeout",
+        "align_timeout",
+    ):
+        assert getattr(limits, name) == pytest.approx(params[name]), name
+    assert limits.require_station_confirm == params["require_station_confirm"]
 
 
 def test_목적지_좌표는_로봇_설정에_두지_않는다():
