@@ -65,6 +65,8 @@ class DockingServer(Node):
         self.declare_parameter("aim_offset_px_per_deg", 6.0)
         self.declare_parameter("aim_offset_distance", 0.55)
         self.declare_parameter("aim_offset_max_px", 120.0)
+        self.declare_parameter("edge_guard_px", 200.0)
+        self.declare_parameter("edge_min_speed_ratio", 0.25)
         self.declare_parameter("search_turn_speed", 0.4)
         self.declare_parameter("search_sweep_deg", 360.0)
         self.declare_parameter("search_step_deg", 20.0)
@@ -88,6 +90,8 @@ class DockingServer(Node):
             aim_offset_px_per_deg=self.get_parameter("aim_offset_px_per_deg").value,
             aim_offset_distance=self.get_parameter("aim_offset_distance").value,
             aim_offset_max_px=self.get_parameter("aim_offset_max_px").value,
+            edge_guard_px=self.get_parameter("edge_guard_px").value,
+            edge_min_speed_ratio=self.get_parameter("edge_min_speed_ratio").value,
         )
         self.search = SearchConfig(
             turn_speed=self.get_parameter("search_turn_speed").value,
