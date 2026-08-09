@@ -23,6 +23,7 @@ setup(
             "mission_manager = potner_mission.mission_manager_node:main",
             "safety = potner_mission.safety_node:main",
             "drive_node = potner_mission.drive_node:main",
+            "simple_navigator = potner_mission.simple_navigator_node:main",
         ],
     },
 )

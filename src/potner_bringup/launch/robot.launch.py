@@ -33,6 +33,7 @@ def generate_launch_description():
     use_lidar = LaunchConfiguration("use_lidar")
     camera_device = LaunchConfiguration("camera_device")
     use_person_detector = LaunchConfiguration("use_person_detector")
+    use_simple_nav = LaunchConfiguration("use_simple_nav")
 
     robot_description = ParameterValue(Command(["xacro ", xacro_path]), value_type=str)
 
@@ -51,6 +52,10 @@ def generate_launch_description():
         # YOLO 사람 인지. 젯슨에 ultralytics 가 없고, 있어도 카메라 높이 탓에
         # 사람을 제대로 못 봅니다. 인사는 scan_presence 가 맡습니다.
         DeclareLaunchArgument("use_person_detector", default_value="false"),
+        # Nav2 대신 오도메트리로 목표까지 가는 간이 주행. 좁은 시연
+        # 공간에서는 Nav2 가 기본 여유(55cm)만으로도 갈 칸을 다 막아
+        # 경로를 못 만듭니다. Nav2 를 띄울 때는 반드시 false 로 끄세요.
+        DeclareLaunchArgument("use_simple_nav", default_value="true"),
 
         # ---- 형상: URDF로부터 고정 TF를 발행합니다. Nav2의 전제조건.
         Node(
@@ -178,6 +183,20 @@ def generate_launch_description():
             package="potner_mission",
             executable="drive_node",
             parameters=[params],
+            output="screen",
+        ),
+
+        # ---- 좌표 주행: Nav2 를 대신해 오도메트리로 목표까지 갑니다.
+        #
+        # ★ Nav2 를 쓸 때는 반드시 use_simple_nav:=false 로 끄세요. 같은
+        #   액션 이름(navigate_to_pose)을 두 서버가 물면 mission_manager 가
+        #   아무 쪽에나 붙어서, 어느 쪽이 로봇을 몰고 있는지 알 수 없게
+        #   됩니다.
+        Node(
+            package="potner_mission",
+            executable="simple_navigator",
+            parameters=[params],
+            condition=IfCondition(use_simple_nav),
             output="screen",
         ),
 
