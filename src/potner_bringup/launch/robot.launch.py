@@ -34,6 +34,7 @@ def generate_launch_description():
     camera_device = LaunchConfiguration("camera_device")
     use_person_detector = LaunchConfiguration("use_person_detector")
     use_simple_nav = LaunchConfiguration("use_simple_nav")
+    use_safety = LaunchConfiguration("use_safety")
 
     robot_description = ParameterValue(Command(["xacro ", xacro_path]), value_type=str)
 
@@ -56,6 +57,13 @@ def generate_launch_description():
         # 공간에서는 Nav2 가 기본 여유(55cm)만으로도 갈 칸을 다 막아
         # 경로를 못 만듭니다. Nav2 를 띄울 때는 반드시 false 로 끄세요.
         DeclareLaunchArgument("use_simple_nav", default_value="true"),
+        # ★ 안전 정지. 통제된 시연장처럼 장애물이 없다고 확신할 때만
+        #   끄세요 (use_safety:=false). 끄면 라이다에 뭐가 잡혀도 로봇이
+        #   서지 않습니다 — 사람 발이든 스테이션이든 그대로 밀고 갑니다.
+        #
+        #   라이다 자체는 꺼지지 않습니다. 마중 시연의 사람 감지
+        #   (scan_presence)와 도킹 탐색의 전방 확인이 라이다를 씁니다.
+        DeclareLaunchArgument("use_safety", default_value="true"),
 
         # ---- 형상: URDF로부터 고정 TF를 발행합니다. Nav2의 전제조건.
         Node(
@@ -82,9 +90,12 @@ def generate_launch_description():
         ),
 
         # ---- 안전: 최우선 정지. 다른 무엇보다 먼저 떠 있어야 합니다.
+        # 끄면 cmd_vel_safety 에 발행자가 없어져 twist_mux 의 255 슬롯이
+        # 비고, 그 아래(도킹 150 / 주행 100)가 그대로 모터까지 갑니다.
         Node(
             package="potner_mission",
             executable="safety",
+            condition=IfCondition(use_safety),
             parameters=[params],
             output="screen",
         ),
