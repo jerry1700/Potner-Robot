@@ -71,6 +71,7 @@ NODES = [
     ("face_display", "potner_base", "face_display_node"),
     ("safety", "potner_mission", "safety_node"),
     ("mission_manager", "potner_mission", "mission_manager_node"),
+    ("simple_navigator", "potner_mission", "simple_navigator_node"),
     ("docking_server", "potner_docking", "docking_server_node"),
     ("marker_detector", "potner_perception", "marker_detector_node"),
     ("person_detector", "potner_perception", "person_detector_node"),
@@ -151,6 +152,40 @@ def test_도킹_시한_기본값이_설정파일과_일치한다():
     ):
         assert getattr(limits, name) == pytest.approx(params[name]), name
     assert limits.require_station_confirm == params["require_station_confirm"]
+
+
+def test_간이_주행_기본값이_설정파일과_일치한다():
+    from potner_mission.goto_controller import GotoConfig
+
+    params = load_params()["simple_navigator"]["ros__parameters"]
+    config = GotoConfig()
+
+    for name in (
+        "cruise_speed",
+        "slow_distance",
+        "min_speed",
+        "kp_heading",
+        "max_angular",
+        "turn_speed",
+        "turn_slow_angle_deg",
+        "turn_min_speed",
+        "position_tolerance",
+        "yaw_tolerance_deg",
+    ):
+        assert getattr(config, name) == pytest.approx(params[name]), name
+    # dataclass 쪽은 timeout, yaml·노드 쪽은 navigate_timeout 입니다.
+    assert config.timeout == pytest.approx(params["navigate_timeout"])
+
+
+def test_간이_주행이_임무관리자보다_먼저_포기한다():
+    """반대로 두면 클라이언트가 먼저 포기해서, 왜 못 갔는지가 로그에
+    안 남습니다. 주행이 실패한 이유는 주행 쪽이 알고 있습니다."""
+    params = load_params()
+
+    assert (
+        params["simple_navigator"]["ros__parameters"]["navigate_timeout"]
+        < params["mission_manager"]["ros__parameters"]["navigate_timeout"]
+    )
 
 
 def test_목적지_좌표는_로봇_설정에_두지_않는다():
