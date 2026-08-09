@@ -51,6 +51,56 @@ def test_마커를_놓친_지_오래되면_정지한다():
     assert step.linear == 0.0
 
 
+def test_방금_놓쳤으면_돌지_않고_멈춰서_기다린다():
+    """놓침의 대부분은 자기 움직임이 만든 번짐이다.
+
+    즉시 탐색 회전을 시작하면 그 회전이 방금까지 잘 보이던 마커를 화면
+    밖으로 밀어낸다 — 실기에서 "잘 찾다가도 놓치는" 원인이었다. 유예
+    안에서는 멈춰서 재검출을 기다려야 한다.
+    """
+    s = session(marker_lost_timeout=2.0)
+    s.step(elapsed=1.0, marker_age=0.0, observation=FAR)
+
+    step = s.step(elapsed=1.5, marker_age=0.5, observation=None)
+
+    assert step.phase is DockingPhase.SEARCHING
+    assert step.linear == 0.0
+    assert step.angular == 0.0
+
+
+def test_대기_중에는_누적기를_비우라고_알린다():
+    """대기 중 흘러든 각도가 남아 있으면 회전을 시작하자마자
+    "한 바퀴 다 돌았다"로 오판한다."""
+    s = session(marker_lost_timeout=2.0)
+    s.step(elapsed=1.0, marker_age=0.0, observation=FAR)
+
+    step = s.step(elapsed=1.5, marker_age=0.5, observation=None)
+
+    assert step.restart_odometry is True
+
+
+def test_대기_중_다시_보이면_그대로_접근을_잇는다():
+    s = session(marker_lost_timeout=2.0)
+    s.step(elapsed=1.0, marker_age=0.0, observation=FAR)
+    s.step(elapsed=1.5, marker_age=0.5, observation=None)
+
+    step = s.step(elapsed=2.0, marker_age=0.0, observation=FAR)
+
+    assert step.phase is DockingPhase.APPROACHING
+    assert step.linear > 0.0
+
+
+def test_유예가_지나면_탐색_회전을_시작한다():
+    s = session(marker_lost_timeout=2.0)
+    s.step(elapsed=1.0, marker_age=0.0, observation=FAR)
+    s.step(elapsed=1.5, marker_age=0.5, observation=None)  # 유예 안 — 대기
+
+    step = s.step(elapsed=4.5, marker_age=3.5, observation=None)
+
+    assert step.phase is DockingPhase.SEARCHING
+    assert step.angular != 0.0
+
+
 def test_마커가_보이고_멀면_전진한다():
     step = session().step(elapsed=1.0, marker_age=0.0, observation=FAR)
 
