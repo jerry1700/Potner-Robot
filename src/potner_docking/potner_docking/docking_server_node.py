@@ -24,6 +24,7 @@ import math
 
 import rclpy
 from geometry_msgs.msg import Twist, Vector3
+from nav_msgs.msg import Odometry
 from rclpy.action import ActionServer, CancelResponse, GoalResponse
 from rclpy.callback_groups import ReentrantCallbackGroup
 from rclpy.executors import MultiThreadedExecutor
@@ -33,6 +34,7 @@ from std_msgs.msg import Bool, Int32, String
 
 from potner_docking.approach_controller import DockingGains
 from potner_docking.session import DockingPhase, DockingSession, SessionLimits
+from potner_docking.turn_tracker import TurnAccumulator, yaw_from_quaternion
 from potner_msgs.action import DockToStation
 
 CONTROL_PERIOD = 0.05  # 20Hz
@@ -51,6 +53,9 @@ class DockingServer(Node):
         self.declare_parameter("docking_timeout", 90.0)
         self.declare_parameter("confirm_timeout", 5.0)
         self.declare_parameter("search_timeout", 15.0)
+        self.declare_parameter("turn_after_dock_deg", 180.0)
+        self.declare_parameter("turn_speed", 0.5)
+        self.declare_parameter("turn_timeout", 20.0)
         self.declare_parameter("require_station_confirm", False)
 
         self.gains = DockingGains(
@@ -59,12 +64,15 @@ class DockingServer(Node):
             approach_speed=self.get_parameter("approach_speed").value,
             max_angular=self.get_parameter("max_angular").value,
             target_distance=self.get_parameter("target_distance").value,
+            turn_after_dock_deg=self.get_parameter("turn_after_dock_deg").value,
+            turn_speed=self.get_parameter("turn_speed").value,
         )
         self.limits = SessionLimits(
             marker_lost_timeout=self.get_parameter("marker_lost_timeout").value,
             docking_timeout=self.get_parameter("docking_timeout").value,
             confirm_timeout=self.get_parameter("confirm_timeout").value,
             search_timeout=self.get_parameter("search_timeout").value,
+            turn_timeout=self.get_parameter("turn_timeout").value,
             require_station_confirm=self.get_parameter(
                 "require_station_confirm"
             ).value,
@@ -76,6 +84,9 @@ class DockingServer(Node):
         self._pose = None
         self._last_seen = None
         self._station_confirmed = False
+        # 도킹 후 제자리 회전량. 오도메트리 yaw 를 누적해서 잽니다.
+        self._yaw = None
+        self._turn = TurnAccumulator()
 
         # 액션 실행 중에도 구독 콜백이 계속 들어와야 하므로 재진입 그룹을
         # 씁니다. 기본 그룹이면 execute 루프가 콜백을 막아 마커 관측이
@@ -97,6 +108,11 @@ class DockingServer(Node):
         #   바꾸면 도킹이 영원히 끝나지 않습니다.
         self.create_subscription(
             Bool, "station/docked", self._on_station, 10, callback_group=group,
+        )
+        # 회전량 판정용. 마커는 등을 돌리는 순간 안 보이므로 카메라로는
+        # 각도를 잴 수 없습니다.
+        self.create_subscription(
+            Odometry, "odom", self._on_odom, 10, callback_group=group,
         )
 
         self._cmd_pub = self.create_publisher(Twist, "cmd_vel_docking", 10)
@@ -130,6 +146,10 @@ class DockingServer(Node):
         # x=거리(m), y=좌우오차(px), z=기울기(deg)
         self._pose = (msg.x, msg.y, msg.z)
 
+    def _on_odom(self, msg: Odometry):
+        q = msg.pose.pose.orientation
+        self._yaw = yaw_from_quaternion(q.x, q.y, q.z, q.w)
+
     def _on_station(self, msg: Bool):
         """스테이션 A3144 홀 센서가 로봇 자석을 감지했다는 신호.
 
@@ -162,12 +182,14 @@ class DockingServer(Node):
             docking_timeout=timeout if timeout > 0.0 else self.limits.docking_timeout,
             confirm_timeout=self.limits.confirm_timeout,
             search_timeout=self.limits.search_timeout,
+            turn_timeout=self.limits.turn_timeout,
             require_station_confirm=self.limits.require_station_confirm,
         )
         session = DockingSession(self.gains, limits)
 
         self._busy = True
         self._station_confirmed = False
+        self._turn.reset()
         self._target_id = marker_id
         self._last_seen = None
         started = self.get_clock().now()
@@ -189,9 +211,24 @@ class DockingServer(Node):
                     else math.inf
                 )
 
+                # 회전 단계에 막 들어섰으면 그 순간의 yaw 를 기준점으로
+                # 잡습니다. 접근하는 동안 돌아간 각도가 섞이면 안 됩니다.
+                was_turning = session.phase is DockingPhase.TURNING
+                turned = self._turn.turned if was_turning else 0.0
+
                 step = session.step(
-                    elapsed, marker_age, observation, self._station_confirmed
+                    elapsed,
+                    marker_age,
+                    observation,
+                    self._station_confirmed,
+                    turn_progress=turned,
                 )
+
+                if step.phase is DockingPhase.TURNING:
+                    if not was_turning:
+                        self._turn.reset()
+                    if self._yaw is not None:
+                        self._turn.update(self._yaw)
                 self._publish(step)
 
                 if step.finished:

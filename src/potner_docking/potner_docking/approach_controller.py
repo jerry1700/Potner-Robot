@@ -31,6 +31,18 @@ class DockingGains:
     lateral_tolerance: float = 30.0  # 정렬 성공 판정 (px)
     yaw_tolerance: float = 10.0  # 정렬 성공 판정 (deg)
 
+    # 정렬이 끝난 뒤 제자리에서 도는 각도. 화분이 로봇 뒤쪽에 있어서,
+    # 마커를 보고 붙은 자세 그대로면 스테이션 장치가 화분에 닿지 않습니다.
+    # 0 으로 두면 회전 없이 바로 완료합니다.
+    #
+    # ★ 이 각도는 오도메트리로 재는데, wheel_separation 설정이 실제와
+    #   다르면 실제로 도는 각도가 그 비율만큼 어긋납니다. 명령을 바퀴
+    #   속도로 바꿀 때와 엔코더에서 각도를 되계산할 때 같은 값을 쓰기
+    #   때문에 오차가 상쇄되어, 오도메트리는 늘 "명령한 만큼 돌았다"고
+    #   보고합니다. 실측 전에는 이 값이 맞아도 몸은 다른 각도로 섭니다.
+    turn_after_dock_deg: float = 180.0
+    turn_speed: float = 0.5  # rad/s. + 가 좌회전(CCW)
+
 
 @dataclass
 class DockingCommand:
