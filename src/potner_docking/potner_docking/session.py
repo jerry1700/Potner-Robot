@@ -21,6 +21,7 @@ from dataclasses import dataclass
 from enum import Enum
 
 from potner_docking.approach_controller import DockingGains, compute
+from potner_docking.marker_search import MarkerSearch, SearchConfig
 
 
 class DockingPhase(Enum):
@@ -39,9 +40,12 @@ class SessionLimits:
     docking_timeout: float = 90.0  # 전체 제한. 무한 루프 방지
     confirm_timeout: float = 5.0  # 스테이션 접점을 기다리는 시간
 
-    # 목표 마커를 한 번도 못 본 채 이 시간이 지나면 포기합니다. 전체
-    # 제한만 두면 마커가 없는 자리에서 90초를 서 있게 됩니다.
-    search_timeout: float = 15.0
+    # 목표 마커를 한 번도 못 본 채 이 시간이 지나면 포기합니다.
+    #
+    # ★ 0 이하면 이 제한을 쓰지 않고 전체 제한(docking_timeout)까지 계속
+    #   찾습니다. 예전에는 15초였는데, 탐색 회전이 한 바퀴 도는 데만
+    #   약 16초라 한 바퀴도 못 돌고 포기했습니다.
+    search_timeout: float = 0.0
 
     # 정렬 후 제자리 회전에 주는 시간. 이걸 넘기면 바퀴가 헛돌거나
     # 오도메트리가 죽은 것이라 접습니다. 180도를 0.5rad/s 로 돌면 약 6.3초.
@@ -62,6 +66,9 @@ class DockingStep:
     # 이번 주기에 실제로 본 관측. 마커를 놓쳤으면 None 입니다. 액션 피드백이
     # 옛 값을 계속 보여주지 않게 하려고 들고 다닙니다.
     observation: tuple = None
+    # True 면 호출하는 쪽이 회전·이동 누적기를 0 으로 되돌려야 합니다.
+    # 탐색 단계가 바뀌는 순간이라 이전 단계의 누적이 섞이면 안 됩니다.
+    restart_odometry: bool = False
 
     @property
     def finished(self) -> bool:
@@ -75,9 +82,16 @@ class DockingStep:
 class DockingSession:
     """한 번의 도킹 시도. 액션 목표 하나에 세션 하나가 대응합니다."""
 
-    def __init__(self, gains: DockingGains = None, limits: SessionLimits = None):
+    def __init__(
+        self,
+        gains: DockingGains = None,
+        limits: SessionLimits = None,
+        search: SearchConfig = None,
+    ):
         self.gains = gains or DockingGains()
         self.limits = limits or SessionLimits()
+        self.search = MarkerSearch(search)
+        self._last_lateral = 0.0
         self.phase = DockingPhase.SEARCHING
         self.last_observation = None
         self._aligned_since = None
@@ -91,6 +105,8 @@ class DockingSession:
         observation,
         station_confirmed: bool = False,
         turn_progress: float = 0.0,
+        creep_progress: float = 0.0,
+        front_range: float = math.inf,
     ) -> DockingStep:
         """다음 주행 명령과 단계를 계산합니다.
 
@@ -100,8 +116,10 @@ class DockingSession:
                 한 번도 못 봤으면 float('inf')
             observation: (거리 m, 좌우오차 px, 기울기 deg) 또는 None
             station_confirmed: 스테이션 홀 센서 접점 여부
-            turn_progress: 회전 단계에 들어간 뒤 실제로 돈 각도 (rad, 크기).
-                TURNING 이 아닐 때는 쓰이지 않습니다
+            turn_progress: 지금 단계에 들어온 뒤 돌아간 각도 (rad, 크기)
+            creep_progress: 지금 단계에 들어온 뒤 이동한 거리 (m, 크기)
+            front_range: 정면에서 가장 가까운 장애물까지 거리 (m).
+                탐색 중 전진해도 되는지 판단하는 데만 씁니다
         """
         if station_confirmed:
             return self._finish(DockingPhase.DOCKED, "스테이션 접점 확인")
@@ -115,22 +133,46 @@ class DockingSession:
         if self.phase is DockingPhase.TURNING:
             return self._turn_step(elapsed, turn_progress)
 
-        # 마커를 놓쳤으면 멈춥니다. 안 보이는 채로 계속 전진하면 스테이션을
-        # 들이받습니다.
+        # 마커를 놓쳤습니다. 예전에는 여기서 0,0 을 내고 가만히 서 있었는데,
+        # 장면이 안 바뀌니 영영 못 찾았습니다. 이제는 돌면서 찾습니다.
         if observation is None or marker_age > self.limits.marker_lost_timeout:
+            entering = self.phase is not DockingPhase.SEARCHING
             self.phase = DockingPhase.SEARCHING
             self._aligned_since = None
 
-            # 한 번도 못 본 채 탐색 제한을 넘겼으면 접습니다. 엉뚱한 자리에
-            # 도착했다는 뜻이라 더 기다려도 달라지지 않습니다.
-            if not self._ever_seen and elapsed > self.limits.search_timeout:
+            if entering:
+                # 방금 놓쳤다면 마지막으로 본 쪽으로 돕니다. 반대로 돌면
+                # 마커에서 더 멀어져 한 바퀴를 헛돕니다.
+                #   lateral > 0 = 마커가 화면 오른쪽 -> 오른쪽으로 돌아야
+                #   하고, 그건 angular 가 음수라는 뜻입니다.
+                self.search.reset(-1.0 if self._last_lateral > 0.0 else 1.0)
+                # 이전 단계에서 쌓인 회전·이동량이 섞이면 들어오자마자
+                # "한 바퀴 다 돌았다" 로 오판합니다.
+                turn_progress = 0.0
+                creep_progress = 0.0
+
+            # search_timeout 이 0 이하면 전체 제한까지 계속 찾습니다.
+            if (
+                self.limits.search_timeout > 0.0
+                and not self._ever_seen
+                and elapsed > self.limits.search_timeout
+            ):
                 return self._finish(DockingPhase.FAILED, "마커를 찾지 못함")
 
-            return DockingStep(self.phase, 0.0, 0.0, "마커 유실")
+            found = self.search.step(turn_progress, creep_progress, front_range)
+            return DockingStep(
+                self.phase,
+                found.linear,
+                found.angular,
+                found.reason,
+                None,
+                restart_odometry=found.restart_odometry,
+            )
 
         self._ever_seen = True
         self.last_observation = observation
         distance, lateral, yaw = observation
+        self._last_lateral = lateral
         command = compute(distance, lateral, yaw, self.gains)
 
         if command.docked:

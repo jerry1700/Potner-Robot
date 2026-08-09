@@ -27,12 +27,17 @@ def session(turn_deg=None, **kwargs):
     return DockingSession(gains, SessionLimits(**kwargs))
 
 
-def test_마커를_한_번도_못_보면_움직이지_않는다():
+def test_마커를_못_보면_제자리에서_돌며_찾는다():
+    """예전에는 0,0 을 내고 가만히 서 있었다.
+
+    로봇이 안 움직이면 장면이 안 바뀌므로 마커가 프러스텀에 다시 들어올
+    수 없다. 한 번 놓치면 영영 못 찾는 데드락이었다.
+    """
     step = session().step(elapsed=0.5, marker_age=float("inf"), observation=None)
 
     assert step.phase is DockingPhase.SEARCHING
-    assert step.linear == 0.0
-    assert step.angular == 0.0
+    assert step.linear == 0.0      # 아직 전진은 안 한다
+    assert step.angular != 0.0     # 돌면서 찾는다
 
 
 def test_마커를_놓친_지_오래되면_정지한다():

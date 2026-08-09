@@ -120,7 +120,24 @@ docking_server:
     max_angular: 0.8         # 각속도 상한 (rad/s)
     target_distance: 0.15    # 목표 정지 거리 (m)
     marker_lost_timeout: 2.0 # 이 시간 넘게 마커를 못 보면 정지
-    search_timeout: 15.0     # 마커를 한 번도 못 보면 이때 포기
+    # 마커를 한 번도 못 본 채 이 시간이 지나면 포기. 0 이면 전체 제한
+    # (docking_timeout)까지 계속 찾습니다. 예전 15초는 탐색 회전이 한 바퀴
+    # 도는 시간(약 16초)보다 짧아 한 바퀴도 못 돌고 접었습니다.
+    search_timeout: 0.0
+
+    # 마커를 못 찾았을 때의 탐색 동작. 한 바퀴 돌고 -> 조금 전진 -> 다시
+    # 한 바퀴를 반복합니다. 예전에는 0,0 만 내고 서 있어서 한 번 놓치면
+    # 장면이 안 바뀌어 영영 못 찾았습니다.
+    #
+    # ★ search_front_clear 를 낮추지 마세요. safety 는 우선순위 255 라
+    #   걸리는 순간 도킹(150)이 회전조차 못 하고, 도킹 제어기에는 후진이
+    #   없어 스스로 빠져나올 수 없습니다. safety 정지선(라이다 기준 0.18m)
+    #   보다 넉넉히 앞에서 멈춰야 갇히지 않습니다.
+    search_turn_speed: 0.4        # rad/s. 한 바퀴에 약 16초
+    search_sweep_deg: 360.0
+    search_creep_speed: 0.06      # m/s
+    search_creep_distance: 0.15   # m. 한 바퀴 돌고 못 찾으면 이만큼 이동
+    search_front_clear: 0.50      # m. 정면이 이보다 가까우면 전진 금지
     docking_timeout: 90.0    # 이 시간 넘으면 포기 (무한루프 방지)
     confirm_timeout: 5.0     # 스테이션 접점을 기다리는 시간
 
