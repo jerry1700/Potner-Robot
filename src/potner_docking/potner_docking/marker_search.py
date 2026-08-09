@@ -36,9 +36,10 @@ class SearchConfig:
     # ★ 스텝 회전 — 이만큼 돌고 **멈춰서** 카메라에 찾을 시간을 줍니다.
     #   연속으로 돌면 번짐 때문에 마커 위를 지나가도 검출이 안 됩니다
     #   (실기: 몇 바퀴를 돌아도 못 찾음). 스텝 각도는 시야(실효 36도)보다
-    #   작아야 연속 멈춤끼리 겹쳐서 빈틈이 안 생깁니다 — 정지 지연으로
-    #   스텝마다 ~7도를 지나치는 것까지 계산하면 25도가 상한 근처입니다.
-    step_angle_deg: float = 25.0
+    #   작아야 연속 멈춤끼리 겹쳐서 빈틈이 안 생깁니다. 정지 지연으로
+    #   스텝마다 ~7도를 더 지나가므로 실제 간격은 설정값 + 7도입니다 —
+    #   20도로 두면 실효 27도 대 시야 36도라 9도가 겹칩니다.
+    step_angle_deg: float = 20.0
     pause_time: float = 1.0  # s. 멈춰서 보는 시간 (카메라 ~28fps 면 충분)
     # 한 바퀴 돌고도 못 찾았을 때 옮겨갈 거리.
     creep_speed: float = 0.06  # m/s
@@ -67,7 +68,12 @@ class MarkerSearch:
 
     def __init__(self, config: SearchConfig = None):
         self.config = config or SearchConfig()
-        self._mode = self.ROTATING
+        # ★ 돌기 전에 **먼저 봅니다.** 예전에는 회전부터 시작해서, 마커가
+        #   이미 앞에 있어도 25도를 돌려 시야 밖으로 밀어냈고 그러면 한
+        #   바퀴를 통째로 더 돌아야 했습니다. 회전 중에는 번짐 때문에
+        #   검출이 안 되니, 놓친 자리에서 한 번 서서 확인하는 것이 항상
+        #   먼저입니다 — 비용은 1초뿐입니다.
+        self._mode = self.PAUSED
         self._direction = 1.0
         self._swept = 0.0  # 이번 한 바퀴에서 지금까지 돈 각도 (rad)
         self._paused_at = None
@@ -84,7 +90,7 @@ class MarkerSearch:
                 접근 중에 놓친 경우라면 **마지막으로 본 쪽**을 주세요.
                 반대로 돌면 마커에서 더 멀어져 한 바퀴를 헛돕니다.
         """
-        self._mode = self.ROTATING
+        self._mode = self.PAUSED  # 돌기 전에 먼저 본다 — __init__ 주석 참고
         self._direction = 1.0 if direction >= 0 else -1.0
         self._swept = 0.0
         self._paused_at = None
@@ -112,6 +118,8 @@ class MarkerSearch:
         # ★ 멈춰서 보는 중. 도는 동안에는 번짐 때문에 마커 위를 지나가도
         #   검출이 안 됩니다 — 멈춰야 선명한 프레임이 나옵니다.
         if self._mode == self.PAUSED:
+            if self._paused_at is None:
+                self._paused_at = elapsed
             if elapsed - self._paused_at < self.config.pause_time:
                 return SearchStep(0.0, 0.0, "멈춰서 마커 확인 중")
             self._mode = self.ROTATING

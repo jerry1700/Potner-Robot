@@ -21,17 +21,45 @@ FULL_TURN = math.radians(360.0)
 
 
 def search(**kwargs):
+    """탐색기를 만들되 **처음 멈춰 보는 구간은 이미 지난** 상태로 준다.
+
+    탐색은 돌기 전에 먼저 서서 확인한다 (그래야 마커가 앞에 있는데 돌아서
+    놓치는 일이 없다). 회전·전진을 보는 시험들은 그 구간 뒤가 관심사라
+    여기서 한 번에 넘긴다. 처음 멈춤 자체는 위 두 시험이 지킨다.
+    """
+    finder = MarkerSearch(SearchConfig(**kwargs)) if kwargs else MarkerSearch()
+    finder.step(0.0, 0.0, OPEN, elapsed=0.0)
+    finder.step(0.0, 0.0, OPEN, elapsed=finder.config.pause_time + 1.0)
+    return finder
+
+
+def fresh(**kwargs):
+    """갓 만든 탐색기 — 처음 멈춤 구간을 그대로 본다."""
     return MarkerSearch(SearchConfig(**kwargs)) if kwargs else MarkerSearch()
 
 
 # --- 회전 ---
 
 
-def test_처음에는_제자리에서_돈다():
-    step = search().step(turned_rad=0.0, crept_m=0.0, front_range_m=OPEN)
+def test_돌기_전에_먼저_멈춰서_본다():
+    """예전에는 회전부터 시작해서, 마커가 이미 앞에 있어도 한 스텝을
+    돌려 시야 밖으로 밀어냈다. 그러면 한 바퀴를 통째로 더 돌아야 했다.
+    회전 중에는 번짐 때문에 검출이 안 되니 서서 확인이 항상 먼저다.
+    """
+    step = fresh().step(turned_rad=0.0, crept_m=0.0, front_range_m=OPEN)
 
     assert step.linear == 0.0
+    assert step.angular == 0.0
+
+
+def test_먼저_보고_나서_돈다():
+    finder = fresh()
+    finder.step(0.0, 0.0, OPEN, elapsed=0.0)  # 처음 멈춤
+
+    step = finder.step(0.0, 0.0, OPEN, elapsed=1.5)
+
     assert step.angular != 0.0
+    assert finder.mode == MarkerSearch.ROTATING
 
 
 def test_한_스텝을_돌면_멈춰서_확인한다():
@@ -84,13 +112,14 @@ def test_한_바퀴를_다_돌아야_전진한다():
 
 def test_방향을_주면_그쪽으로_돈다():
     """접근 중 놓쳤으면 마지막으로 본 쪽으로 돌아야 헛돌지 않는다."""
-    left = search()
-    left.reset(direction=1.0)
-    right = search()
-    right.reset(direction=-1.0)
+    def after_reset(direction):
+        finder = fresh()
+        finder.reset(direction=direction)
+        finder.step(0.0, 0.0, OPEN, elapsed=0.0)  # 먼저 서서 확인
+        return finder.step(0.0, 0.0, OPEN, elapsed=2.0)
 
-    assert left.step(0.0, 0.0, OPEN).angular > 0
-    assert right.step(0.0, 0.0, OPEN).angular < 0
+    assert after_reset(1.0).angular > 0
+    assert after_reset(-1.0).angular < 0
 
 
 # --- 전진 ---
