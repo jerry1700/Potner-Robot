@@ -62,10 +62,30 @@ def compute(
     if close_enough and centered and parallel:
         return DockingCommand(0.0, 0.0, True, "정렬 완료")
 
-    angular = lateral_error_px * gains.kp_lateral
+    # ★ 부호에 마이너스가 붙는 이유 — 두 규약이 반대입니다.
+    #
+    #   lateral_error_px : 마커가 화면 **오른쪽**이면 +
+    #                      (marker_detector_node.py 의 center_x - width/2)
+    #   angular.z        : **왼쪽(CCW)** 회전이 + (REP-103, kinematics.py 의
+    #                      right = linear + angular * half_track)
+    #
+    # 오른쪽에 있는 마커를 가운데로 데려오려면 오른쪽으로 돌아야 하고,
+    # 그건 angular 가 음수라는 뜻입니다. 마이너스를 빼면 양의 되먹임이
+    # 되어 마커를 화면 밖으로 밀어냅니다 — 루프 이득이
+    # kp_lateral x 초점거리 = 0.0025 x 876.4 = 2.19/s 라 **0.32초마다 오차가
+    # 두 배**가 됩니다. 0.5m 에서 0.15m 까지 오는 동안 64배로 커져서,
+    # 처음에 2mm 만 어긋나 있어도 도중에 마커가 프레임을 벗어납니다.
+    # 실기에서 "정확히 정면이면 붙고 조금만 틀어지면 마커를 놓친다" 로
+    # 나타났습니다.
+    angular = -lateral_error_px * gains.kp_lateral
 
     # 멀리서는 화면 중앙을 맞추는 데만 집중합니다. 원거리에서 기울기까지
     # 보면 제어가 출렁입니다.
+    #
+    # ★ 이쪽은 **뒤집지 마세요.** 위의 마이너스와 짝을 이뤄야 합니다.
+    #   둘 다 음수면 새들점이 되어 다시 발산하고, yaw 항을 지우면 위치는
+    #   맞아도 자세(법선 대비 각도)가 영영 안 맞습니다. 이 항이 법선
+    #   이탈각을 0 으로 끌어내리는 유일한 경로입니다.
     if distance_m < gains.yaw_blend_distance:
         angular += yaw_error_deg * gains.kp_yaw
 
