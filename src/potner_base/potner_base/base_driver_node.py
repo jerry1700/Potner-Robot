@@ -169,10 +169,26 @@ class BaseDriver(Node):
         qz = math.sin(theta / 2.0)
         qw = math.cos(theta / 2.0)
 
+        # ★ 자식 프레임은 base_link 가 아니라 base_footprint 입니다.
+        #
+        #   URDF 가 base_footprint -> base_link 를 이미 발행합니다
+        #   (potner.urdf.xacro 의 base_joint, 고정 조인트라 /tf_static).
+        #   여기서 odom -> base_link 를 내보내면 base_link 에 부모가 둘이
+        #   되어 TF 트리가 두 조각으로 갈라집니다. 그러면 slam_toolbox 가
+        #   "Failed to compute odom pose" 를 쏟아내며 스캔을 전부 버려서
+        #   **지도가 한 장도 안 만들어집니다.** 실기에서 그렇게 당했습니다.
+        #
+        #   올바른 사슬은 map -> odom -> base_footprint -> base_link 이고,
+        #   slam_toolbox.yaml 의 base_frame 과 nav2_params.yaml 의
+        #   base_frame_id / robot_base_frame 이 전부 base_footprint 입니다.
+        #
+        #   오도메트리가 재는 것은 바닥에 투영된 평면 자세라 base_footprint
+        #   가 의미상으로도 맞습니다 — base_link 는 거기서 바퀴 반지름만큼
+        #   떠 있고, 그 차이는 URDF 가 채웁니다.
         msg = Odometry()
         msg.header.stamp = stamp.to_msg()
         msg.header.frame_id = "odom"
-        msg.child_frame_id = "base_link"
+        msg.child_frame_id = "base_footprint"
         msg.pose.pose.position.x = x
         msg.pose.pose.position.y = y
         msg.pose.pose.orientation.z = qz
@@ -184,7 +200,7 @@ class BaseDriver(Node):
         tf = TransformStamped()
         tf.header.stamp = stamp.to_msg()
         tf.header.frame_id = "odom"
-        tf.child_frame_id = "base_link"
+        tf.child_frame_id = "base_footprint"
         tf.transform.translation.x = x
         tf.transform.translation.y = y
         tf.transform.rotation.z = qz

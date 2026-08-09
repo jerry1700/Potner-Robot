@@ -224,3 +224,55 @@ def test_엔코더_분해능은_쿼드러처_4배수를_포함한_실측값이�
     명령의 1/4 속도로만 움직인다.
     """
     assert DriveConfig().counts_per_rev == 5760
+
+
+def _tf_child_frame():
+    """base_driver 가 오도메트리 TF 의 자식으로 발행하는 프레임 이름."""
+    source = (
+        REPO / "src" / "potner_base" / "potner_base" / "base_driver_node.py"
+    ).read_text(encoding="utf-8")
+    match = re.search(r'tf\.child_frame_id\s*=\s*"([^"]+)"', source)
+    assert match, "base_driver 의 TF 자식 프레임을 찾지 못했습니다"
+    return match.group(1)
+
+
+def test_오도메트리_TF_자식은_URDF_트리의_뿌리여야_한다():
+    """URDF 가 이미 부모를 가진 프레임에 odom 을 또 붙이면 TF 가 갈라진다.
+
+    base_link 는 URDF 에서 base_footprint 의 자식이다. 여기에 odom 을
+    붙이면 base_link 에 부모가 둘이 되어 tf2 가 트리를 두 조각으로 쪼갠다.
+    그러면 slam_toolbox 가 "Failed to compute odom pose" 를 쏟아내며 스캔을
+    전부 버려서 **지도가 한 장도 만들어지지 않는다.** 실기에서 그렇게
+    당했고, 원인을 찾는 데 오래 걸렸다.
+    """
+    child = _tf_child_frame()
+    urdf = (
+        REPO / "src" / "potner_description" / "urdf" / "potner.urdf.xacro"
+    ).read_text(encoding="utf-8")
+
+    parented = set(re.findall(r'<child\s+link="([^"]+)"', urdf))
+
+    assert child not in parented, (
+        f"base_driver 가 odom -> {child} 를 발행하는데 URDF 도 {child} 에 "
+        f"부모를 붙이고 있습니다. TF 트리가 갈라집니다."
+    )
+
+
+def test_오도메트리_TF_자식이_SLAM과_Nav2_기준_프레임과_같다():
+    """세 곳이 어긋나면 스캔이 지도에 얹히지 않는다."""
+    child = _tf_child_frame()
+
+    slam = yaml.safe_load(
+        (REPO / "src" / "potner_bringup" / "config" / "slam_toolbox.yaml")
+        .read_text(encoding="utf-8")
+    )
+    nav2 = yaml.safe_load(
+        (REPO / "src" / "potner_bringup" / "config" / "nav2_params.yaml")
+        .read_text(encoding="utf-8")
+    )
+
+    assert slam["slam_toolbox"]["ros__parameters"]["base_frame"] == child
+    assert nav2["amcl"]["ros__parameters"]["base_frame_id"] == child
+    for scope in ("local_costmap", "global_costmap"):
+        params = nav2[scope][scope]["ros__parameters"]
+        assert params["robot_base_frame"] == child, scope
