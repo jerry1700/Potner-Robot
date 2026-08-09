@@ -149,8 +149,13 @@ class Robot:
         print(f"\n{label} 명령을 보냈습니다 (id={request_id}).")
 
         end = time.monotonic() + timeout
+        shown = self.state
+        started = time.monotonic()
         while self._rclpy.ok() and time.monotonic() < end:
             self._rclpy.spin_once(self.node, timeout_sec=0.1)
+            if self.state != shown:
+                shown = self.state
+                print(f"  [{time.monotonic() - started:5.1f}초] {shown}")
             for result in self.results:
                 if result.get("requestId") == request_id:
                     status = result.get("status", "?")
@@ -281,8 +286,10 @@ def cmd_welcome(robot):
         "commandName": "welcome_start",
     }
     print(describe("greeting", poses["greeting"]))
-    print("  도착하면 30초 동안 사람을 기다립니다. 로봇 앞 1m 에 서세요.")
-    ok = robot.send(robot._arrival_pub, body, request_id, "마중", 180.0)
+    print("  흐름: greeting 이동 -> 30초 사람 대기 -> 인사 -> home 복귀")
+    print("  회신은 이 전체가 끝나야 옵니다 (최대 150초).")
+    print("  로봇이 마중 자리에 서면 그 앞 1m 안으로 들어가세요.")
+    ok = robot.send(robot._arrival_pub, body, request_id, "마중", 200.0)
     return 0 if ok else 1
 
 
