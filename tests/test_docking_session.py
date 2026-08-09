@@ -285,6 +285,16 @@ def _to_turning(confirm_timeout=5.0, **kwargs):
     return s
 
 
+def _almost_done(s, short_by_deg=4.0):
+    """목표를 코앞에 둔 회전량 (rad).
+
+    목표 각도는 오도메트리와 실제 회전의 차이를 흡수하는 보정값이라 언제든
+    바뀐다. 숫자를 박아 두면 보정할 때마다 이 파일이 깨지므로, 목표에서
+    거꾸로 센다. 정지 마진(2도) 밖이면서 감속 구간 안이어야 한다.
+    """
+    return math.radians(s.gains.turn_after_dock_deg - short_by_deg)
+
+
 def test_회전_중에는_마커가_안_보여도_계속_돈다():
     """등을 돌리는 동작이라 마커가 사라지는 것이 정상이다.
 
@@ -371,7 +381,7 @@ def test_감속해도_바닥_속도_아래로는_안_내려간다():
 
     step = s.step(
         elapsed=16.0, marker_age=float("inf"), observation=None,
-        turn_progress=math.radians(176.0),
+        turn_progress=_almost_done(s),
     )
 
     assert step.angular == pytest.approx(s.gains.turn_min_speed)
@@ -395,7 +405,7 @@ def test_목표_코앞_정체는_성공으로_수용한다():
     감속 바닥이 정지마찰에 걸려 목표 몇 도 앞에서 멈추면, 기다려 봐야
     "다 돌아놓고 시한 초과 실패"만 남는다."""
     s = _to_turning()
-    stuck = math.radians(176.0)
+    stuck = _almost_done(s)
 
     s.step(elapsed=16.0, marker_age=float("inf"), observation=None,
            turn_progress=stuck)
