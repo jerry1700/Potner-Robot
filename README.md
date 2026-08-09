@@ -256,7 +256,7 @@ ros2 action send_goal /dock_to_station potner_msgs/action/DockToStation \
 | 화면 오른쪽으로 | `angular.z` 양수 |
 | 화면 왼쪽으로 | `angular.z` 음수 |
 | 멀리 (1m) | `linear.x` 약 0.12 |
-| 10cm 안쪽으로 | `linear.x` 0, 각도만 보정 |
+| 15cm 안쪽으로 | `linear.x` 0, 각도만 보정 |
 | 정면으로 가까이 고정 | `CONFIRMING` → 5초 후 성공 |
 | 카메라에서 숨김 | 2초 후 전부 0 (정지) |
 
