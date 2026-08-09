@@ -24,6 +24,7 @@ setup(
             "safety = potner_mission.safety_node:main",
             "drive_node = potner_mission.drive_node:main",
             "simple_navigator = potner_mission.simple_navigator_node:main",
+            "pose_report = potner_mission.pose_report_node:main",
         ],
     },
 )
