@@ -53,6 +53,21 @@ class DockingGains:
     aim_offset_distance: float = 0.55
     aim_offset_max_px: float = 120.0  # 오프셋 상한 — 마커를 화면 밖으로 안 밀게
 
+    # ★ 가장자리 보호 — 마커가 화면 끝으로 밀려가는 중이면 조준점을 접고
+    #   속도를 줄입니다. 놓치고 나서 찾는 것보다 안 놓치는 것이 훨씬 싸기
+    #   때문입니다 (한 번 놓치면 정지 대기 2초 + 탐색 회전이 붙습니다).
+    #
+    #   가까워질수록 시야 여유가 급격히 줄어드는 것이 유실의 근본 원인
+    #   입니다. 마커가 화면에 온전히 들어오는 좌우 한계는 거리에 비례해서
+    #   0.5m 에서 약 250px 인데 0.2m 에서는 200px, 0.15m 에서는 173px 까지
+    #   좁아집니다. 같은 자세로 다가가기만 해도 어느 순간 밖으로 나갑니다.
+    #
+    #   느려지면 제어기가 같은 거리를 좁히는 동안 중앙으로 되돌릴 시간을
+    #   더 법니다. 완전히 멈추지는 않습니다 — 멈추면 기울기 보정과 균형이
+    #   맞는 지점에서 영영 못 나오는 교착이 생깁니다.
+    edge_guard_px: float = 200.0  # 이 좌우 오차에서 보호가 최대
+    edge_min_speed_ratio: float = 0.25  # 보호가 최대일 때 남기는 속도 비율
+
     # 정렬이 끝난 뒤 제자리에서 도는 각도. 화분이 로봇 뒤쪽에 있어서,
     # 마커를 보고 붙은 자세 그대로면 스테이션 장치가 화분에 닿지 않습니다.
     # 0 으로 두면 회전 없이 바로 완료합니다.
@@ -134,11 +149,20 @@ def compute(
     #   평형을 화면 중심 밖으로 옮겨 마커를 프레임 끝까지 밀 수 있습니다
     #   (명령→물리 0.2초 지연을 넣은 적대 시뮬레이션에서 이 경로로 정렬이
     #   실패했습니다).
+    # 마커가 화면 끝으로 밀려간 정도. 0 이면 중앙, 1 이면 보호 최대.
+    edge = 0.0
+    if gains.edge_guard_px > 0.0:
+        edge = min(abs(lateral_error_px) / gains.edge_guard_px, 1.0)
+
     aim_px = 0.0
     if gains.target_distance < distance_m < gains.aim_offset_distance:
         aim_px = _clamp(
             yaw_error_deg * gains.aim_offset_px_per_deg, gains.aim_offset_max_px
         )
+        # 조준점은 마커를 일부러 옆으로 밀어 두는 항이라, 이미 가장자리로
+        # 가 있으면 그대로 화면 밖으로 밀어냅니다. 중앙 복귀가 우선입니다.
+        aim_px *= 1.0 - edge
+
     angular = -(lateral_error_px - aim_px) * gains.kp_lateral
 
     # 멀리서는 화면 중앙을 맞추는 데만 집중합니다. 원거리에서 기울기까지
@@ -156,7 +180,11 @@ def compute(
     if close_enough:
         return DockingCommand(0.0, angular, False, "제자리 미세 정렬")
 
-    return DockingCommand(gains.approach_speed, angular, False, "접근 중")
+    # 가장자리로 밀려가 있으면 늦춰서 중앙으로 되돌릴 시간을 법니다.
+    speed = gains.approach_speed * (1.0 - (1.0 - gains.edge_min_speed_ratio) * edge)
+    reason = "가장자리 — 늦추며 접근" if edge > 0.5 else "접근 중"
+
+    return DockingCommand(speed, angular, False, reason)
 
 
 def pixel_to_lateral_error(marker_corners, image_width: float) -> float:

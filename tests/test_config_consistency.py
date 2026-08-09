@@ -121,6 +121,8 @@ def test_도킹_게인_기본값이_설정파일과_일치한다():
         "aim_offset_px_per_deg",
         "aim_offset_distance",
         "aim_offset_max_px",
+        "edge_guard_px",
+        "edge_min_speed_ratio",
         "turn_after_dock_deg",
         "turn_speed",
         "turn_slow_angle_deg",

@@ -75,6 +75,51 @@ def test_각속도에_상한이_걸린다():
     assert abs(command.angular) <= GAINS.max_angular
 
 
+# --- 가장자리 보호 ---
+#
+# 놓치고 나서 찾는 것보다 안 놓치는 것이 훨씬 싸다. 한 번 놓치면 정지
+# 대기 2초에 탐색 회전까지 붙고, 실기에서 그 회전이 다시 마커를 밀어냈다.
+
+
+def test_가장자리로_밀려가면_늦춘다():
+    """가까워질수록 시야 여유가 급격히 좁아지는 것이 유실의 근본 원인이다.
+
+    좌우 한계가 0.5m 에서 약 250px 인데 0.15m 에서는 173px 까지 좁아져서,
+    같은 자세로 다가가기만 해도 어느 순간 화면 밖으로 나간다. 늦추면
+    같은 거리를 좁히는 동안 중앙으로 되돌릴 시간을 더 번다.
+    """
+    centered = compute(0.40, 10.0, 0.0, GAINS)
+    near_edge = compute(0.40, 200.0, 0.0, GAINS)
+
+    assert near_edge.linear < centered.linear
+    assert near_edge.linear > 0.0  # 멈추지는 않는다
+
+
+def test_가장자리에서도_전진을_멈추지는_않는다():
+    """멈추면 기울기 보정과 균형이 맞는 지점에서 못 나오는 교착이 생긴다.
+
+    그 교착은 목표 거리 밖이라 align_timeout 도 안 잡아줘서 90초를 태운다.
+    """
+    stuck = compute(0.40, 100000.0, 0.0, GAINS)
+
+    assert stuck.linear == pytest.approx(
+        GAINS.approach_speed * GAINS.edge_min_speed_ratio
+    )
+
+
+def test_가장자리에서는_조준점을_접는다():
+    """조준점은 마커를 일부러 옆으로 밀어 두는 항이라, 이미 가장자리로
+    가 있으면 그대로 화면 밖으로 밀어낸다."""
+    aim_only = replace(GAINS, kp_yaw=0.0)
+
+    # 좌우 오차는 같고 조준점만 다른 두 경우를 비교한다.
+    at_edge = compute(0.30, GAINS.edge_guard_px, 20.0, aim_only).angular
+    no_aim = replace(aim_only, aim_offset_px_per_deg=0.0)
+    without = compute(0.30, GAINS.edge_guard_px, 20.0, no_aim).angular
+
+    assert at_edge == pytest.approx(without)
+
+
 # --- 조준점 오프셋 ---
 #
 # 마커를 화면 정중앙이 아니라 기울기 반대쪽으로 비껴 잡아, 비스듬히
