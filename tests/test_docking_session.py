@@ -5,6 +5,9 @@
 스테이션을 들이받는 경우들을 여기서 잡습니다.
 """
 
+import math
+from dataclasses import replace
+
 import pytest
 
 from potner_docking.approach_controller import DockingGains
@@ -16,8 +19,12 @@ FAR = (1.20, 0.0, 0.0)
 CLOSE_BUT_CROOKED = (0.14, 120.0, 0.0)
 
 
-def session(**kwargs):
-    return DockingSession(GAINS, SessionLimits(**kwargs))
+def session(turn_deg=None, **kwargs):
+    """turn_deg 를 0 으로 주면 도킹 후 회전 없이 바로 끝냅니다."""
+    gains = GAINS if turn_deg is None else replace(
+        GAINS, turn_after_dock_deg=turn_deg
+    )
+    return DockingSession(gains, SessionLimits(**kwargs))
 
 
 def test_마커를_한_번도_못_보면_움직이지_않는다():
@@ -72,15 +79,29 @@ def test_스테이션_접점이_오면_즉시_성공한다():
     assert step.linear == 0.0
 
 
-def test_스테이션이_없어도_확인_시간이_지나면_성공한다():
-    """스테이션이 아직 안 만들어졌으므로 기본 동작은 비전만으로 성공."""
-    s = session(confirm_timeout=5.0, require_station_confirm=False)
+def test_회전이_꺼져_있으면_확인_시간_뒤_바로_성공한다():
+    """스테이션이 아직 안 만들어졌으므로 판정은 비전만으로 합니다."""
+    s = session(turn_deg=0.0, confirm_timeout=5.0, require_station_confirm=False)
 
     s.step(elapsed=10.0, marker_age=0.0, observation=ALIGNED)
     step = s.step(elapsed=15.1, marker_age=0.0, observation=ALIGNED)
 
     assert step.phase is DockingPhase.DOCKED
     assert step.succeeded is True
+
+
+def test_확인_시간이_지나면_회전_단계로_간다():
+    """정렬만으로 끝내면 화분이 스테이션 반대쪽을 본 채로 성공이 나가고,
+    서버가 곧바로 급수를 시켜 물이 엉뚱한 데로 갑니다."""
+    s = session(confirm_timeout=5.0)
+
+    s.step(elapsed=10.0, marker_age=0.0, observation=ALIGNED)
+    step = s.step(elapsed=15.1, marker_age=0.0, observation=ALIGNED)
+
+    assert step.phase is DockingPhase.TURNING
+    assert step.finished is False
+    assert step.linear == 0.0
+    assert step.angular != 0.0
 
 
 def test_접점을_요구하면_신호_없이는_실패한다():
@@ -107,7 +128,7 @@ def test_정렬이_풀리면_확인_타이머가_초기화된다():
     assert step.phase is DockingPhase.CONFIRMING
 
     step = s.step(elapsed=18.1, marker_age=0.0, observation=ALIGNED)
-    assert step.phase is DockingPhase.DOCKED
+    assert step.phase is DockingPhase.TURNING
 
 
 def test_전체_시간을_넘기면_실패로_끝낸다():
@@ -186,3 +207,77 @@ def test_종료_단계만_finished_로_판정된다(phase):
 
     assert DockingStep(phase, 0.0, 0.0, "").finished is True
     assert DockingStep(DockingPhase.APPROACHING, 0.1, 0.0, "").finished is False
+
+
+# --- 도킹 후 제자리 회전 ---
+
+
+def _to_turning(confirm_timeout=5.0, **kwargs):
+    """회전 단계까지 진행시킨 세션을 돌려줍니다."""
+    s = session(confirm_timeout=confirm_timeout, **kwargs)
+    s.step(elapsed=10.0, marker_age=0.0, observation=ALIGNED)
+    s.step(elapsed=15.1, marker_age=0.0, observation=ALIGNED)
+    return s
+
+
+def test_회전_중에는_마커가_안_보여도_계속_돈다():
+    """등을 돌리는 동작이라 마커가 사라지는 것이 정상이다.
+
+    유실 처리로 빠지면 회전을 시작하자마자 SEARCHING 이 되어 영영 못 돈다.
+    """
+    s = _to_turning()
+
+    step = s.step(
+        elapsed=16.0,
+        marker_age=float("inf"),
+        observation=None,
+        turn_progress=math.radians(30.0),
+    )
+
+    assert step.phase is DockingPhase.TURNING
+    assert step.angular != 0.0
+
+
+def test_목표_각도를_채우면_성공한다():
+    s = _to_turning()
+
+    step = s.step(
+        elapsed=22.0,
+        marker_age=float("inf"),
+        observation=None,
+        turn_progress=math.radians(180.0),
+    )
+
+    assert step.phase is DockingPhase.DOCKED
+    assert step.succeeded is True
+    assert step.linear == 0.0
+    assert step.angular == 0.0
+
+
+def test_덜_돈_채로_시한을_넘기면_실패한다():
+    """덜 돈 채로 성공을 내면 서버가 급수를 시켜 물이 엉뚱한 데로 간다."""
+    s = _to_turning(turn_timeout=20.0)
+
+    step = s.step(
+        elapsed=40.0,
+        marker_age=float("inf"),
+        observation=None,
+        turn_progress=math.radians(90.0),
+    )
+
+    assert step.phase is DockingPhase.FAILED
+    assert step.succeeded is False
+
+
+def test_회전_중에는_전진하지_않는다():
+    """스테이션 코앞이라 조금이라도 전진하면 들이받는다."""
+    s = _to_turning()
+
+    for progress in (10.0, 90.0, 170.0):
+        step = s.step(
+            elapsed=16.0,
+            marker_age=float("inf"),
+            observation=None,
+            turn_progress=math.radians(progress),
+        )
+        assert step.linear == 0.0
