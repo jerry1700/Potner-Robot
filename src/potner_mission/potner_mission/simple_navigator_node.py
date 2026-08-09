@@ -58,7 +58,7 @@ class SimpleNavigator(Node):
         self.declare_parameter("turn_slow_angle_deg", 45.0)
         self.declare_parameter("turn_min_speed", 0.15)
         self.declare_parameter("position_tolerance", 0.08)
-        self.declare_parameter("yaw_tolerance_deg", 10.0)
+        self.declare_parameter("yaw_tolerance_deg", 5.0)
         self.declare_parameter("navigate_timeout", 60.0)
 
         self.config = GotoConfig(
