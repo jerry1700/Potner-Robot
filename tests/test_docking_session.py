@@ -32,8 +32,15 @@ def test_마커를_못_보면_제자리에서_돌며_찾는다():
 
     로봇이 안 움직이면 장면이 안 바뀌므로 마커가 프러스텀에 다시 들어올
     수 없다. 한 번 놓치면 영영 못 찾는 데드락이었다.
+
+    지금은 먼저 서서 한 번 확인한 뒤에 돈다 — 마커가 이미 앞에 있는데
+    돌아서 놓치는 일을 막기 위해서다. 그 확인이 끝나면 돌아야 한다.
     """
-    step = session().step(elapsed=0.5, marker_age=float("inf"), observation=None)
+    s = session()
+    look = s.step(elapsed=0.5, marker_age=float("inf"), observation=None)
+    assert look.angular == 0.0  # 먼저 서서 본다
+
+    step = s.step(elapsed=3.0, marker_age=float("inf"), observation=None)
 
     assert step.phase is DockingPhase.SEARCHING
     assert step.linear == 0.0      # 아직 전진은 안 한다
@@ -95,7 +102,8 @@ def test_유예가_지나면_탐색_회전을_시작한다():
     s.step(elapsed=1.0, marker_age=0.0, observation=FAR)
     s.step(elapsed=1.5, marker_age=0.5, observation=None)  # 유예 안 — 대기
 
-    step = s.step(elapsed=4.5, marker_age=3.5, observation=None)
+    s.step(elapsed=4.5, marker_age=3.5, observation=None)  # 먼저 서서 확인
+    step = s.step(elapsed=7.0, marker_age=6.0, observation=None)
 
     assert step.phase is DockingPhase.SEARCHING
     assert step.angular != 0.0
