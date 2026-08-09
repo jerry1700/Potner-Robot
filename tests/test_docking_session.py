@@ -14,11 +14,11 @@ from potner_docking.approach_controller import DockingGains
 from potner_docking.session import DockingPhase, DockingSession, SessionLimits
 
 GAINS = DockingGains()
-# 목표 정지 거리(0.10m) 안쪽. 이 값을 목표 거리에 맞춰 두지 않으면
+# 목표 정지 거리(0.15m) 안쪽. 이 값을 목표 거리에 맞춰 두지 않으면
 # 도착 판정이 안 서서 이 파일의 시험 대부분이 무의미해진다.
-ALIGNED = (0.09, 5.0, 2.0)  # 거리·좌우·각도 모두 허용치 안
+ALIGNED = (0.14, 5.0, 2.0)  # 거리·좌우·각도 모두 허용치 안
 FAR = (1.20, 0.0, 0.0)
-CLOSE_BUT_CROOKED = (0.09, 120.0, 0.0)
+CLOSE_BUT_CROOKED = (0.14, 120.0, 0.0)
 
 
 def session(turn_deg=None, **kwargs):
@@ -421,7 +421,7 @@ def test_많이_남은_정체는_수용하지_않는다():
 
 # --- 정렬 교착 탈출 ---
 
-CLOSE_SLIGHTLY_OFF = (0.09, 50.0, 5.0)  # 허용치(30px)는 넘고 2배 안
+CLOSE_SLIGHTLY_OFF = (0.14, 50.0, 5.0)  # 허용치(30px)는 넘고 2배 안
 
 
 def test_정렬_교착은_시한이_지나면_잔류를_수용하고_회전한다():

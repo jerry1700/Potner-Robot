@@ -10,7 +10,7 @@ GAINS = DockingGains()
 
 
 def test_거리와_정렬이_모두_맞으면_도킹_완료():
-    command = compute(0.09, 5.0, 2.0, GAINS)
+    command = compute(0.14, 5.0, 2.0, GAINS)
     assert command.docked is True
     assert command.linear == 0.0
     assert command.angular == 0.0
@@ -64,7 +64,7 @@ def test_가까워지면_기울기도_보정한다():
 
 def test_거리는_됐는데_정렬이_안_되면_제자리에서_돈다():
     """차동 구동이라 가능한 동작입니다. 애커만 차량에서는 안 됐습니다."""
-    command = compute(0.09, 100.0, 0.0, GAINS)
+    command = compute(0.14, 100.0, 0.0, GAINS)
     assert command.docked is False
     assert command.linear == 0.0
     assert command.angular != 0.0
@@ -84,7 +84,7 @@ def test_각속도에_상한이_걸린다():
 def test_가장자리로_밀려가면_늦춘다():
     """가까워질수록 시야 여유가 급격히 좁아지는 것이 유실의 근본 원인이다.
 
-    좌우 한계가 0.5m 에서 약 250px 인데 목표 거리 0.10m 에서는 114px 까지
+    좌우 한계가 0.5m 에서 약 250px 인데 목표 거리 0.15m 에서는 172px 까지
     좁아져서, 같은 자세로 다가가기만 해도 어느 순간 밖으로 나간다. 늦추면
     같은 거리를 좁히는 동안 중앙으로 되돌릴 시간을 더 번다.
     """
@@ -158,7 +158,7 @@ def test_조준점은_목표_거리_안에서는_끈다():
     비스듬 출발 정렬이 실패했다."""
     aim_only = replace(GAINS, kp_yaw=0.0)
 
-    in_place = compute(0.09, 0.0, 20.0, aim_only)
+    in_place = compute(0.14, 0.0, 20.0, aim_only)
 
     assert in_place.angular == pytest.approx(0.0)
 
