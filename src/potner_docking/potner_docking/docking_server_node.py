@@ -57,7 +57,14 @@ class DockingServer(Node):
         self.declare_parameter("search_timeout", 0.0)
         self.declare_parameter("turn_after_dock_deg", 180.0)
         self.declare_parameter("turn_speed", 0.5)
+        self.declare_parameter("turn_slow_angle_deg", 60.0)
+        self.declare_parameter("turn_min_speed", 0.15)
+        self.declare_parameter("turn_stop_margin_deg", 2.0)
         self.declare_parameter("turn_timeout", 20.0)
+        self.declare_parameter("align_timeout", 15.0)
+        self.declare_parameter("aim_offset_px_per_deg", 6.0)
+        self.declare_parameter("aim_offset_distance", 0.55)
+        self.declare_parameter("aim_offset_max_px", 120.0)
         self.declare_parameter("search_turn_speed", 0.4)
         self.declare_parameter("search_sweep_deg", 360.0)
         self.declare_parameter("search_creep_speed", 0.06)
@@ -73,6 +80,12 @@ class DockingServer(Node):
             target_distance=self.get_parameter("target_distance").value,
             turn_after_dock_deg=self.get_parameter("turn_after_dock_deg").value,
             turn_speed=self.get_parameter("turn_speed").value,
+            turn_slow_angle_deg=self.get_parameter("turn_slow_angle_deg").value,
+            turn_min_speed=self.get_parameter("turn_min_speed").value,
+            turn_stop_margin_deg=self.get_parameter("turn_stop_margin_deg").value,
+            aim_offset_px_per_deg=self.get_parameter("aim_offset_px_per_deg").value,
+            aim_offset_distance=self.get_parameter("aim_offset_distance").value,
+            aim_offset_max_px=self.get_parameter("aim_offset_max_px").value,
         )
         self.search = SearchConfig(
             turn_speed=self.get_parameter("search_turn_speed").value,
@@ -87,6 +100,7 @@ class DockingServer(Node):
             confirm_timeout=self.get_parameter("confirm_timeout").value,
             search_timeout=self.get_parameter("search_timeout").value,
             turn_timeout=self.get_parameter("turn_timeout").value,
+            align_timeout=self.get_parameter("align_timeout").value,
             require_station_confirm=self.get_parameter(
                 "require_station_confirm"
             ).value,
@@ -229,6 +243,7 @@ class DockingServer(Node):
             confirm_timeout=self.limits.confirm_timeout,
             search_timeout=self.limits.search_timeout,
             turn_timeout=self.limits.turn_timeout,
+            align_timeout=self.limits.align_timeout,
             require_station_confirm=self.limits.require_station_confirm,
         )
         session = DockingSession(self.gains, limits)
@@ -258,6 +273,12 @@ class DockingServer(Node):
                     else math.inf
                 )
 
+                # ★ 누적기 갱신은 step 앞에서 합니다. 뒤에서 하면 회전 문턱
+                #   판정이 항상 한 주기(0.05s) 낡은 각도를 봅니다 — 0.5rad/s
+                #   면 1.4도로, 정지 마진(2도)과 같은 자릿수입니다.
+                if self._yaw is not None:
+                    self._turn.update(self._yaw)
+
                 previous = session.phase
                 step = session.step(
                     elapsed,
@@ -275,8 +296,6 @@ class DockingServer(Node):
                 if step.phase is not previous or step.restart_odometry:
                     self._turn.reset()
                     self._creep_origin = self._position
-                if self._yaw is not None:
-                    self._turn.update(self._yaw)
                 self._publish(step)
 
                 if step.finished:

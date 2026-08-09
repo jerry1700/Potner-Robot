@@ -23,6 +23,14 @@ from enum import Enum
 from potner_docking.approach_controller import DockingGains, compute
 from potner_docking.marker_search import MarkerSearch, SearchConfig
 
+# 회전 정체 수용 — 감속 바닥 속도가 정지마찰을 못 이기면 목표 몇 도 앞에서
+# 영영 못 움직일 수 있습니다. TURNING 은 마커 유실 검사를 건너뛰어 출구가
+# turn_timeout 뿐이라, 목표 코앞의 정체를 "다 돌아놓고 실패"로 만드는 대신
+# 성공으로 받아들입니다. 목표에서 TURN_STALL_ACCEPT_DEG 안쪽 정체만 수용.
+TURN_STALL_ACCEPT_DEG = 5.0
+TURN_STALL_WINDOW = 2.0  # s. 이 시간 동안 안 움직이면 정체로 판정
+TURN_STALL_EPSILON = 0.01  # rad (~0.6도). 이보다 늘어야 "움직였다"로 침
+
 
 class DockingPhase(Enum):
     SEARCHING = "SEARCHING"
@@ -52,8 +60,18 @@ class SessionLimits:
     search_timeout: float = 0.0
 
     # 정렬 후 제자리 회전에 주는 시간. 이걸 넘기면 바퀴가 헛돌거나
-    # 오도메트리가 죽은 것이라 접습니다. 180도를 0.5rad/s 로 돌면 약 6.3초.
+    # 오도메트리가 죽은 것이라 접습니다. 끝 감속 포함 180도에 약 8~9초.
     turn_timeout: float = 20.0
+
+    # 목표 거리에 도착한 뒤 이 시간까지 정렬이 안 끝나면 결단합니다.
+    #
+    # ★ 제자리 회전은 좌우 오차와 기울기를 강체로 함께 움직여서, 두 보정
+    #   항이 상쇄되는 평형(angular≈0)에 갇히면 잔류가 영영 안 빠집니다 —
+    #   후진이 없어 물러났다 다시 붙을 수도 없습니다. 그때 전체 제한
+    #   90초를 다 태우는 대신: 잔류가 허용치의 2배 안이면 수용하고 회전
+    #   으로 넘어가고, 그보다 크면 일찍 실패해 재시도 기회를 줍니다.
+    #   0 이하면 이 장치를 끕니다.
+    align_timeout: float = 15.0
 
     # 스테이션 홀 센서(A3144) 신호를 성공 조건으로 요구할지. 스테이션이
     # 아직 없으므로 기본값은 False 입니다. 완성되면 True 로 바꿔서 물리적
@@ -101,6 +119,9 @@ class DockingSession:
         self._aligned_since = None
         self._ever_seen = False
         self._turn_started_at = None
+        self._close_since = None
+        self._turn_last_progress = 0.0
+        self._turn_last_advance = 0.0
 
     def step(
         self,
@@ -190,6 +211,14 @@ class DockingSession:
         self.last_observation = observation
         distance, lateral, yaw = observation
         self._last_lateral = lateral
+        if distance > self.gains.target_distance:
+            # ★ 목표 거리 밖이면 정렬 시한 시계를 되감습니다. 유실 후
+            #   멀리서 다시 찾은 경우인데, 낡은 시계로 아래 잔류 수용이
+            #   발동하면 스테이션에서 0.5m 떨어진 채 "성공"이 나가고
+            #   서버가 그 자리에서 급수를 시작합니다.
+            self._close_since = None
+        elif self._close_since is None:
+            self._close_since = elapsed
         command = compute(distance, lateral, yaw, self.gains)
 
         if command.docked:
@@ -209,6 +238,34 @@ class DockingSession:
                 self.phase, 0.0, 0.0, "스테이션 확인 대기", observation
             )
 
+        # ★ 정렬 교착 탈출 — SessionLimits.align_timeout 의 주석 참고.
+        #   제자리 회전은 두 보정 항이 상쇄되는 평형에 갇힐 수 있고, 그러면
+        #   전체 제한 90초를 그 자리에서 다 태웁니다 (시뮬레이션에서 5도만
+        #   비스듬히 출발해도 67~80% 가 이 경로로 실패했습니다).
+        if (
+            self.limits.align_timeout > 0.0
+            and self._close_since is not None
+            and elapsed - self._close_since > self.limits.align_timeout
+        ):
+            acceptable = (
+                abs(lateral) <= 2.0 * self.gains.lateral_tolerance
+                and abs(yaw) <= 2.0 * self.gains.yaw_tolerance
+            )
+            if acceptable:
+                return self._begin_turn(
+                    elapsed,
+                    observation,
+                    reason=(
+                        f"정렬 시한 초과 — 잔류 수용 "
+                        f"(좌우 {lateral:.0f}px, 기울기 {yaw:.0f}도)"
+                    ),
+                )
+            return self._finish(
+                DockingPhase.FAILED,
+                f"정렬 시한 초과 (좌우 {lateral:.0f}px, 기울기 {yaw:.0f}도 잔류)",
+                observation,
+            )
+
         # 정렬이 풀렸으면 대기 타이머를 초기화합니다. 마커가 흔들려 잠깐
         # 정렬됐다 풀린 것을 성공으로 치면 단자가 안 맞은 채로 끝납니다.
         self._aligned_since = None
@@ -219,7 +276,7 @@ class DockingSession:
             self.phase, command.linear, command.angular, command.reason, observation
         )
 
-    def _begin_turn(self, elapsed, observation):
+    def _begin_turn(self, elapsed, observation, reason=None):
         """정렬이 끝났습니다. 화분을 스테이션 쪽으로 돌립니다.
 
         마커를 보고 붙은 자세 그대로면 화분이 반대편을 향하고 있어서
@@ -229,25 +286,51 @@ class DockingSession:
         서버는 곧바로 급수를 시킵니다.
         """
         if self.gains.turn_after_dock_deg <= 0.0:
-            return self._finish(DockingPhase.DOCKED, "비전 정렬 완료", observation)
+            return self._finish(
+                DockingPhase.DOCKED, reason or "비전 정렬 완료", observation
+            )
 
         self.phase = DockingPhase.TURNING
         self._turn_started_at = elapsed
+        self._turn_last_progress = 0.0
+        self._turn_last_advance = elapsed
         self.last_observation = observation
         return DockingStep(
             self.phase,
             0.0,
             self.gains.turn_speed,
-            f"정렬 완료 — {self.gains.turn_after_dock_deg:.0f}도 회전 시작",
+            f"{reason or '정렬 완료'} — {self.gains.turn_after_dock_deg:.0f}도 회전 시작",
             observation,
         )
 
     def _turn_step(self, elapsed, turn_progress):
         target = math.radians(self.gains.turn_after_dock_deg)
-        if turn_progress >= target:
+        remaining = target - turn_progress
+
+        # ★ 마진만큼 일찍 멈춥니다. 정지 명령이 물리 정지가 되기까지
+        #   0.2~0.5초가 걸려 그동안은 그대로 지나갑니다 — 감속 없이
+        #   0.5rad/s 로 문턱을 넘던 때는 이 지연이 +10도였습니다 (실측
+        #   190도). 감속과 마진의 근거는 DockingGains.turn_slow_angle_deg
+        #   주석에 있습니다.
+        if remaining <= math.radians(self.gains.turn_stop_margin_deg):
             return self._finish(
                 DockingPhase.DOCKED,
                 f"정렬·회전 완료 ({math.degrees(turn_progress):.0f}도)",
+                self.last_observation,
+            )
+
+        if turn_progress > self._turn_last_progress + TURN_STALL_EPSILON:
+            self._turn_last_progress = turn_progress
+            self._turn_last_advance = elapsed
+        elif (
+            elapsed - self._turn_last_advance > TURN_STALL_WINDOW
+            and remaining <= math.radians(TURN_STALL_ACCEPT_DEG)
+        ):
+            # 감속 바닥이 정지마찰을 못 이겨 목표 코앞에서 멈춘 경우.
+            # 여기서 계속 버티면 "178도 돌아놓고 시한 초과 실패"가 됩니다.
+            return self._finish(
+                DockingPhase.DOCKED,
+                f"회전 정체 — 잔여 {math.degrees(remaining):.0f}도 수용",
                 self.last_observation,
             )
 
@@ -260,10 +343,25 @@ class DockingSession:
                 self.last_observation,
             )
 
+        # 끝이 가까우면 남은 각도에 비례해 감속합니다. copysign 은 회전
+        # 방향(turn_speed 부호)을 지키기 위한 것 — 크기만 max 로 바닥을
+        # 깔면 음수 속도(우회전 설정)일 때 감속 구간에서 부호가 뒤집혀
+        # 경계에서 영영 왔다갔다 합니다.
+        speed = self.gains.turn_speed
+        slow = math.radians(self.gains.turn_slow_angle_deg)
+        if slow > 0.0 and remaining < slow:
+            speed = math.copysign(
+                max(
+                    self.gains.turn_min_speed,
+                    abs(self.gains.turn_speed) * remaining / slow,
+                ),
+                self.gains.turn_speed,
+            )
+
         return DockingStep(
             self.phase,
             0.0,
-            self.gains.turn_speed,
+            speed,
             f"회전 중 ({math.degrees(turn_progress):.0f}도)",
             self.last_observation,
         )

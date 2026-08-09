@@ -336,3 +336,161 @@ def test_회전_중에는_전진하지_않는다():
             turn_progress=math.radians(progress),
         )
         assert step.linear == 0.0
+
+
+def test_회전_끝이_가까우면_감속한다():
+    """정지 명령이 물리 정지가 되기까지 0.2~0.5초가 걸려, 전속으로 문턱을
+    지나면 그 지연이 그대로 초과 회전이 된다 (실측 190도)."""
+    s = _to_turning()
+
+    fast = s.step(
+        elapsed=16.0, marker_age=float("inf"), observation=None,
+        turn_progress=math.radians(30.0),
+    )
+    slow = s.step(
+        elapsed=16.5, marker_age=float("inf"), observation=None,
+        turn_progress=math.radians(160.0),
+    )
+
+    assert 0.0 < slow.angular < fast.angular
+
+
+def test_감속해도_바닥_속도_아래로는_안_내려간다():
+    """너무 느리면 바퀴가 정지마찰을 못 이겨 목표 직전에 정체한다."""
+    s = _to_turning()
+
+    step = s.step(
+        elapsed=16.0, marker_age=float("inf"), observation=None,
+        turn_progress=math.radians(176.0),
+    )
+
+    assert step.angular == pytest.approx(s.gains.turn_min_speed)
+
+
+def test_정지_마진_안에_들면_다_돈_것으로_친다():
+    """마진 없이 목표각까지 돌리면 정지 지연만큼 항상 지나친다."""
+    s = _to_turning()
+
+    step = s.step(
+        elapsed=16.0, marker_age=float("inf"), observation=None,
+        turn_progress=math.radians(178.5),
+    )
+
+    assert step.phase is DockingPhase.DOCKED
+    assert step.succeeded is True
+
+
+def test_목표_코앞_정체는_성공으로_수용한다():
+    """TURNING 은 마커 유실 검사를 건너뛰어 출구가 turn_timeout 뿐이다.
+    감속 바닥이 정지마찰에 걸려 목표 몇 도 앞에서 멈추면, 기다려 봐야
+    "다 돌아놓고 시한 초과 실패"만 남는다."""
+    s = _to_turning()
+    stuck = math.radians(176.0)
+
+    s.step(elapsed=16.0, marker_age=float("inf"), observation=None,
+           turn_progress=stuck)
+    step = s.step(elapsed=18.6, marker_age=float("inf"), observation=None,
+                  turn_progress=stuck)
+
+    assert step.phase is DockingPhase.DOCKED
+    assert "수용" in step.reason
+
+
+def test_많이_남은_정체는_수용하지_않는다():
+    """90도나 남았는데 성공을 내면 화분이 옆을 본 채로 급수가 시작된다."""
+    s = _to_turning()
+    stuck = math.radians(90.0)
+
+    s.step(elapsed=16.0, marker_age=float("inf"), observation=None,
+           turn_progress=stuck)
+    step = s.step(elapsed=19.0, marker_age=float("inf"), observation=None,
+                  turn_progress=stuck)
+
+    assert step.phase is DockingPhase.TURNING  # turn_timeout 이 처리할 몫
+
+
+# --- 정렬 교착 탈출 ---
+
+CLOSE_SLIGHTLY_OFF = (0.14, 50.0, 5.0)  # 허용치(30px)는 넘고 2배 안
+
+
+def test_정렬_교착은_시한이_지나면_잔류를_수용하고_회전한다():
+    """제자리 회전은 좌우 오차와 기울기를 함께 움직여 둘이 상쇄되는
+    평형에 갇힐 수 있다. 후진이 없어 물러났다 다시 붙지도 못하므로,
+    90초를 태우는 대신 잔류를 수용하고 넘어간다."""
+    s = session(align_timeout=15.0)
+    s.step(elapsed=1.0, marker_age=0.0, observation=CLOSE_SLIGHTLY_OFF)
+
+    step = s.step(elapsed=16.5, marker_age=0.0, observation=CLOSE_SLIGHTLY_OFF)
+
+    assert step.phase is DockingPhase.TURNING
+    assert "수용" in step.reason
+
+
+def test_잔류가_크면_시한에서_실패한다():
+    """허용치 2배 밖 잔류를 수용하면 단자가 안 맞은 채로 급수가 간다."""
+    s = session(align_timeout=15.0)
+    s.step(elapsed=1.0, marker_age=0.0, observation=CLOSE_BUT_CROOKED)
+
+    step = s.step(elapsed=16.5, marker_age=0.0, observation=CLOSE_BUT_CROOKED)
+
+    assert step.phase is DockingPhase.FAILED
+    assert "정렬 시한" in step.reason
+
+
+def test_시한_전에는_계속_정렬한다():
+    s = session(align_timeout=15.0)
+    s.step(elapsed=1.0, marker_age=0.0, observation=CLOSE_SLIGHTLY_OFF)
+
+    step = s.step(elapsed=10.0, marker_age=0.0, observation=CLOSE_SLIGHTLY_OFF)
+
+    assert step.phase is DockingPhase.ALIGNING
+
+
+def test_교착_시한을_끄면_전체_제한까지_정렬한다():
+    s = session(align_timeout=0.0)
+    s.step(elapsed=1.0, marker_age=0.0, observation=CLOSE_SLIGHTLY_OFF)
+
+    step = s.step(elapsed=40.0, marker_age=0.0, observation=CLOSE_SLIGHTLY_OFF)
+
+    assert step.phase is DockingPhase.ALIGNING
+
+
+def test_유실_후_멀리서_다시_찾으면_교착_시한이_발동하지_않는다():
+    """낡은 시계로 잔류 수용이 발동하면 스테이션에서 0.5m 떨어진 채
+    "성공"이 나가고, 서버가 그 자리에서 급수를 시작한다."""
+    s = session(align_timeout=15.0)
+    s.step(elapsed=1.0, marker_age=0.0, observation=CLOSE_SLIGHTLY_OFF)  # 가까이
+    s.step(elapsed=5.0, marker_age=4.0, observation=None)  # 유실 -> 탐색
+
+    step = s.step(elapsed=18.0, marker_age=0.0, observation=(0.50, 40.0, 5.0))
+
+    assert step.phase is DockingPhase.APPROACHING  # 수용도 실패도 아니고 재접근
+
+
+def test_재접근하면_교착_시한을_처음부터_다시_잰다():
+    s = session(align_timeout=15.0)
+    s.step(elapsed=1.0, marker_age=0.0, observation=CLOSE_SLIGHTLY_OFF)
+    s.step(elapsed=18.0, marker_age=0.0, observation=(0.50, 40.0, 5.0))  # 되감김
+
+    # 20초에 다시 목표 거리 도착 — 시한은 35초부터라 아직 정렬 중이어야 한다
+    step = s.step(elapsed=20.0, marker_age=0.0, observation=CLOSE_SLIGHTLY_OFF)
+    assert step.phase is DockingPhase.ALIGNING
+
+    step = s.step(elapsed=36.0, marker_age=0.0, observation=CLOSE_SLIGHTLY_OFF)
+    assert step.phase is DockingPhase.TURNING  # 새 시계 기준 15초 초과 -> 수용
+
+
+def test_반대_방향_회전도_감속_구간에서_방향이_유지된다():
+    """크기만 바닥을 깔면 음수 속도(우회전 설정)일 때 감속 구간에서
+    부호가 뒤집혀 경계에서 영영 왔다갔다 한다."""
+    s = DockingSession(replace(GAINS, turn_speed=-0.5), SessionLimits())
+    s.step(elapsed=10.0, marker_age=0.0, observation=ALIGNED)
+    s.step(elapsed=15.1, marker_age=0.0, observation=ALIGNED)  # TURNING 진입
+
+    step = s.step(
+        elapsed=16.0, marker_age=float("inf"), observation=None,
+        turn_progress=math.radians(160.0),  # 감속 구간 한복판
+    )
+
+    assert step.angular < 0.0
