@@ -16,7 +16,7 @@ class DriveConfig:
     """로봇 실측값. potner_bringup/config/potner_params.yaml 에서 주입됩니다."""
 
     wheel_diameter: float = 0.060  # 확정 — 60mm 구동 바퀴
-    wheel_separation: float = 0.200  # TODO 실측 — 좌우 바퀴 중심 간 거리 (m)
+    wheel_separation: float = 0.230  # 실측 — 바깥면 25.5cm - 바퀴폭 2.5cm (m)
     # 사양서의 "1440 CPR" 은 채널당 사이클이고, 쿼드러처 4배수를 곱해야
     # 실제 카운트가 됩니다. 손으로 한 바퀴 돌려 5,941카운트로 실측 확인.
     counts_per_rev: int = 5760  # 실측 — 1440 CPR x 4 (쿼드러처)
