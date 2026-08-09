@@ -200,6 +200,16 @@ def generate_launch_description():
             output="screen",
         ),
 
+        # ---- 좌표 등록 도구: 지금 서 있는 좌표를 읽기 좋게 내보냅니다.
+        # 로봇을 등록할 자리로 데려간 뒤 아래를 읽어 서버에 넣습니다.
+        #   ros2 topic echo /robot/pose --once
+        Node(
+            package="potner_mission",
+            executable="pose_report",
+            parameters=[params],
+            output="screen",
+        ),
+
         # ---- 외부 연동
         Node(
             package="potner_bridge",

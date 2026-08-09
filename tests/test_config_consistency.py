@@ -72,6 +72,7 @@ NODES = [
     ("safety", "potner_mission", "safety_node"),
     ("mission_manager", "potner_mission", "mission_manager_node"),
     ("simple_navigator", "potner_mission", "simple_navigator_node"),
+    ("pose_report", "potner_mission", "pose_report_node"),
     ("docking_server", "potner_docking", "docking_server_node"),
     ("marker_detector", "potner_perception", "marker_detector_node"),
     ("person_detector", "potner_perception", "person_detector_node"),

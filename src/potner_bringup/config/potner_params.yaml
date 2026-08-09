@@ -154,6 +154,16 @@ simple_navigator:
     #   길면 클라이언트가 먼저 포기해서 원인이 로그에 안 남습니다.
     navigate_timeout: 60.0
 
+# 좌표 등록용. 지금 서 있는 자리를 서버 API 가 그대로 받는 형태로
+# 내보냅니다 — ros2 topic echo /robot/pose --once
+#
+# ★ 오도메트리 원점 기준이라 재시작하면 좌표가 바뀝니다. 바닥에 원점을
+#   표시해 두고 늘 같은 자리에서 launch 를 띄우세요.
+pose_report:
+  ros__parameters:
+    publish_period: 1.0   # s. 좌표는 천천히 봐도 됩니다
+    log_pose: false       # true 면 화면에도 찍습니다 (다른 로그가 묻힙니다)
+
 docking_server:
   ros__parameters:
     # TODO: 실기에서 재튜닝. 진동하면 kp를 낮추고, 반응이 굼뜨면 올리세요.
