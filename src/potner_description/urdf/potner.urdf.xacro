@@ -14,6 +14,11 @@
   <!-- ===== 실측 필요 (TODO) ===================================== -->
   <xacro:property name="wheel_diameter"    value="0.060"/>  <!-- 확정: 60mm 구동 바퀴 -->
   <xacro:property name="wheel_width"       value="0.025"/>  <!-- 실측 -->
+  <!-- 바퀴가 실제로 붙어 있는 자리입니다. 오도메트리가 쓰는 값
+       (potner_params.yaml 의 wheel_separation, 0.2179)과 다른 것이
+       정상입니다 — 그쪽은 제자리 회전의 타이어 비빔까지 반영한
+       실측 보정값이라 기하학적 거리보다 짧습니다. 두 값을 억지로
+       맞추지 마세요. -->
   <xacro:property name="wheel_separation"  value="0.230"/>  <!-- 실측: 바깥면 25.5cm - 바퀴폭 2.5cm -->
   <xacro:property name="body_diameter"     value="0.240"/>  <!-- 본체 외경 -->
   <xacro:property name="body_height"       value="0.180"/>
