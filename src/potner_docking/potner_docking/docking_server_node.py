@@ -67,6 +67,8 @@ class DockingServer(Node):
         self.declare_parameter("aim_offset_max_px", 120.0)
         self.declare_parameter("search_turn_speed", 0.4)
         self.declare_parameter("search_sweep_deg", 360.0)
+        self.declare_parameter("search_step_deg", 25.0)
+        self.declare_parameter("search_pause_time", 1.0)
         self.declare_parameter("search_creep_speed", 0.06)
         self.declare_parameter("search_creep_distance", 0.15)
         self.declare_parameter("search_front_clear", 0.50)
@@ -90,6 +92,8 @@ class DockingServer(Node):
         self.search = SearchConfig(
             turn_speed=self.get_parameter("search_turn_speed").value,
             sweep_angle_deg=self.get_parameter("search_sweep_deg").value,
+            step_angle_deg=self.get_parameter("search_step_deg").value,
+            pause_time=self.get_parameter("search_pause_time").value,
             creep_speed=self.get_parameter("search_creep_speed").value,
             creep_distance=self.get_parameter("search_creep_distance").value,
             front_clear_m=self.get_parameter("search_front_clear").value,

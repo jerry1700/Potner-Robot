@@ -150,8 +150,15 @@ docking_server:
     #   걸리는 순간 도킹(150)이 회전조차 못 하고, 도킹 제어기에는 후진이
     #   없어 스스로 빠져나올 수 없습니다. safety 정지선(라이다 기준 0.18m)
     #   보다 넉넉히 앞에서 멈춰야 갇히지 않습니다.
-    search_turn_speed: 0.4        # rad/s. 한 바퀴에 약 16초
+    search_turn_speed: 0.4        # rad/s
     search_sweep_deg: 360.0
+    # ★ 스텝 회전 — 이만큼 돌고 멈춰서 카메라에 찾을 시간을 줍니다.
+    #   연속으로 돌면 번짐 때문에 마커 위를 지나가도 검출이 안 됩니다
+    #   (실기: 몇 바퀴를 돌아도 못 찾음). 스텝은 시야(실효 36도)보다
+    #   작아야 멈춤 지점끼리 겹쳐 빈틈이 없습니다. 0 이면 예전처럼
+    #   연속 회전. 한 바퀴에 약 20초.
+    search_step_deg: 25.0
+    search_pause_time: 1.0        # s. 멈춰서 보는 시간
     search_creep_speed: 0.06      # m/s
     search_creep_distance: 0.15   # m. 한 바퀴 돌고 못 찾으면 이만큼 이동
     search_front_clear: 0.50      # m. 정면이 이보다 가까우면 전진 금지
