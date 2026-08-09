@@ -197,7 +197,9 @@ class DockingSession:
                     restart_odometry=True,
                 )
 
-            found = self.search.step(turn_progress, creep_progress, front_range)
+            found = self.search.step(
+                turn_progress, creep_progress, front_range, elapsed
+            )
             return DockingStep(
                 self.phase,
                 found.linear,

@@ -34,11 +34,52 @@ def test_처음에는_제자리에서_돈다():
     assert step.angular != 0.0
 
 
-def test_한_바퀴_돌기_전에는_계속_돈다():
-    step = search().step(turned_rad=math.radians(180.0), crept_m=0.0, front_range_m=OPEN)
+def test_한_스텝을_돌면_멈춰서_확인한다():
+    """도는 동안에는 번짐 때문에 마커 위를 지나가도 검출이 안 된다.
+
+    실기에서 몇 바퀴를 돌아도 못 찾았다. 멈춰야 선명한 프레임이 나온다.
+    """
+    step = search().step(
+        turned_rad=math.radians(30.0), crept_m=0.0, front_range_m=OPEN
+    )
 
     assert step.linear == 0.0
+    assert step.angular == 0.0
+    assert step.restart_odometry is True
+
+
+def test_멈춰_보는_시간이_지나면_다음_구간으로_돈다():
+    finder = search()
+    finder.step(math.radians(30.0), 0.0, OPEN, elapsed=10.0)  # 멈춤 시작
+
+    hold = finder.step(0.0, 0.0, OPEN, elapsed=10.5)
+    assert hold.angular == 0.0
+
+    resume = finder.step(0.0, 0.0, OPEN, elapsed=11.5)
+    assert resume.angular != 0.0
+    assert resume.restart_odometry is True
+
+
+def test_스텝을_0으로_두면_예전처럼_연속_회전한다():
+    """안전 롤백 경로."""
+    step = search(step_angle_deg=0.0).step(
+        turned_rad=math.radians(180.0), crept_m=0.0, front_range_m=OPEN
+    )
+
     assert step.angular != 0.0
+
+
+def test_한_바퀴를_다_돌아야_전진한다():
+    """스텝마다 누적이 되지 않으면 영영 한 바퀴를 못 채워 전진 단계로
+    넘어가지 못한다."""
+    finder = search(step_angle_deg=90.0, pause_time=0.0)
+    step_rad = math.radians(90.0)
+
+    for turn in range(4):  # 90도씩 네 번 = 360도
+        finder.step(step_rad, 0.0, OPEN, elapsed=float(turn))
+        finder.step(0.0, 0.0, OPEN, elapsed=float(turn) + 0.5)  # 멈춤 해제
+
+    assert finder.mode == MarkerSearch.CREEPING
 
 
 def test_방향을_주면_그쪽으로_돈다():

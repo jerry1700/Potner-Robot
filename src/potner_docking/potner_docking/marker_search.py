@@ -31,10 +31,15 @@ from dataclasses import dataclass, field
 class SearchConfig:
     """탐색 동작 설정."""
 
-    # 한 바퀴 도는 데 약 16초 걸리는 속도. 더 빠르면 영상이 번져 마커를
-    # 지나쳐 버리고, 더 느리면 전체 제한시간 안에 몇 바퀴 못 돕니다.
     turn_speed: float = 0.4  # rad/s
     sweep_angle_deg: float = 360.0
+    # ★ 스텝 회전 — 이만큼 돌고 **멈춰서** 카메라에 찾을 시간을 줍니다.
+    #   연속으로 돌면 번짐 때문에 마커 위를 지나가도 검출이 안 됩니다
+    #   (실기: 몇 바퀴를 돌아도 못 찾음). 스텝 각도는 시야(실효 36도)보다
+    #   작아야 연속 멈춤끼리 겹쳐서 빈틈이 안 생깁니다 — 정지 지연으로
+    #   스텝마다 ~7도를 지나치는 것까지 계산하면 25도가 상한 근처입니다.
+    step_angle_deg: float = 25.0
+    pause_time: float = 1.0  # s. 멈춰서 보는 시간 (카메라 ~28fps 면 충분)
     # 한 바퀴 돌고도 못 찾았을 때 옮겨갈 거리.
     creep_speed: float = 0.06  # m/s
     creep_distance: float = 0.15  # m
@@ -54,15 +59,18 @@ class SearchStep:
 
 
 class MarkerSearch:
-    """한 바퀴 돌고, 조금 가고, 다시 한 바퀴 도는 탐색."""
+    """조금 돌고 멈춰 보기를 반복하다, 한 바퀴를 다 돌면 조금 이동하는 탐색."""
 
     ROTATING = "rotating"
+    PAUSED = "paused"
     CREEPING = "creeping"
 
     def __init__(self, config: SearchConfig = None):
         self.config = config or SearchConfig()
         self._mode = self.ROTATING
         self._direction = 1.0
+        self._swept = 0.0  # 이번 한 바퀴에서 지금까지 돈 각도 (rad)
+        self._paused_at = None
 
     @property
     def mode(self) -> str:
@@ -78,9 +86,15 @@ class MarkerSearch:
         """
         self._mode = self.ROTATING
         self._direction = 1.0 if direction >= 0 else -1.0
+        self._swept = 0.0
+        self._paused_at = None
 
     def step(
-        self, turned_rad: float, crept_m: float, front_range_m: float
+        self,
+        turned_rad: float,
+        crept_m: float,
+        front_range_m: float,
+        elapsed: float = 0.0,
     ) -> SearchStep:
         """다음 탐색 동작을 정합니다.
 
@@ -89,22 +103,45 @@ class MarkerSearch:
             crept_m: 이 단계에 들어온 뒤 이동한 거리 (m, 크기)
             front_range_m: 정면에서 가장 가까운 장애물까지 거리 (m).
                 모르면 ``math.inf`` 를 주세요 — 그러면 전진합니다
+            elapsed: 도킹 시작 후 경과 시간 (s). 멈춰 보는 시간을 재는 데만
+                씁니다
         """
         turn = self._direction * self.config.turn_speed
         blocked = front_range_m < self.config.front_clear_m
+
+        # ★ 멈춰서 보는 중. 도는 동안에는 번짐 때문에 마커 위를 지나가도
+        #   검출이 안 됩니다 — 멈춰야 선명한 프레임이 나옵니다.
+        if self._mode == self.PAUSED:
+            if elapsed - self._paused_at < self.config.pause_time:
+                return SearchStep(0.0, 0.0, "멈춰서 마커 확인 중")
+            self._mode = self.ROTATING
+            return SearchStep(0.0, turn, "다음 구간으로 회전", restart_odometry=True)
 
         if self._mode == self.CREEPING:
             if crept_m < self.config.creep_distance and not blocked:
                 return SearchStep(self.config.creep_speed, 0.0, "탐색 전진 중")
             self._mode = self.ROTATING
+            self._swept = 0.0
             reason = "앞이 막혀 회전으로 전환" if blocked else "전진 끝 — 다시 회전"
             return SearchStep(0.0, turn, reason, restart_odometry=True)
 
-        # ROTATING
-        if turned_rad < math.radians(self.config.sweep_angle_deg):
+        # ROTATING — 한 스텝만 돌고 멈춰서 봅니다.
+        step_rad = math.radians(self.config.step_angle_deg)
+        if step_rad > 0.0 and turned_rad >= step_rad:
+            self._swept += turned_rad
+            if self._swept < math.radians(self.config.sweep_angle_deg):
+                self._mode = self.PAUSED
+                self._paused_at = elapsed
+                return SearchStep(
+                    0.0, 0.0,
+                    f"멈춰서 마커 확인 ({math.degrees(self._swept):.0f}도 지점)",
+                    restart_odometry=True,
+                )
+        elif turned_rad + self._swept < math.radians(self.config.sweep_angle_deg):
             return SearchStep(0.0, turn, "마커 탐색 회전")
 
         # 한 바퀴 다 돌았는데 못 찾았습니다.
+        self._swept = 0.0
         if blocked:
             # 전진하면 갇히므로 그 자리에서 한 바퀴 더 돕니다. 사람이
             # 마커를 들고 다가오는 시연에서는 이것만으로도 충분합니다.
