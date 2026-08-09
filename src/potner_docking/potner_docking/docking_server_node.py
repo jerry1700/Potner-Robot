@@ -30,9 +30,11 @@ from rclpy.callback_groups import ReentrantCallbackGroup
 from rclpy.executors import MultiThreadedExecutor
 from rclpy.node import Node
 from rclpy.qos import qos_profile_sensor_data
+from sensor_msgs.msg import LaserScan
 from std_msgs.msg import Bool, Int32, String
 
 from potner_docking.approach_controller import DockingGains
+from potner_docking.marker_search import SearchConfig, front_clearance
 from potner_docking.session import DockingPhase, DockingSession, SessionLimits
 from potner_docking.turn_tracker import TurnAccumulator, yaw_from_quaternion
 from potner_msgs.action import DockToStation
@@ -52,10 +54,15 @@ class DockingServer(Node):
         self.declare_parameter("marker_lost_timeout", 2.0)
         self.declare_parameter("docking_timeout", 90.0)
         self.declare_parameter("confirm_timeout", 5.0)
-        self.declare_parameter("search_timeout", 15.0)
+        self.declare_parameter("search_timeout", 0.0)
         self.declare_parameter("turn_after_dock_deg", 180.0)
         self.declare_parameter("turn_speed", 0.5)
         self.declare_parameter("turn_timeout", 20.0)
+        self.declare_parameter("search_turn_speed", 0.4)
+        self.declare_parameter("search_sweep_deg", 360.0)
+        self.declare_parameter("search_creep_speed", 0.06)
+        self.declare_parameter("search_creep_distance", 0.15)
+        self.declare_parameter("search_front_clear", 0.50)
         self.declare_parameter("require_station_confirm", False)
 
         self.gains = DockingGains(
@@ -66,6 +73,13 @@ class DockingServer(Node):
             target_distance=self.get_parameter("target_distance").value,
             turn_after_dock_deg=self.get_parameter("turn_after_dock_deg").value,
             turn_speed=self.get_parameter("turn_speed").value,
+        )
+        self.search = SearchConfig(
+            turn_speed=self.get_parameter("search_turn_speed").value,
+            sweep_angle_deg=self.get_parameter("search_sweep_deg").value,
+            creep_speed=self.get_parameter("search_creep_speed").value,
+            creep_distance=self.get_parameter("search_creep_distance").value,
+            front_clear_m=self.get_parameter("search_front_clear").value,
         )
         self.limits = SessionLimits(
             marker_lost_timeout=self.get_parameter("marker_lost_timeout").value,
@@ -86,7 +100,12 @@ class DockingServer(Node):
         self._station_confirmed = False
         # 도킹 후 제자리 회전량. 오도메트리 yaw 를 누적해서 잽니다.
         self._yaw = None
+        self._position = None
+        self._creep_origin = None
         self._turn = TurnAccumulator()
+        # 탐색 중 전진해도 되는지 판단할 정면 거리. 라이다가 유일한 눈입니다
+        # — 범퍼 ToF 는 펌웨어가 최대값으로 고정해 두어 동작하지 않습니다.
+        self._scan = None
 
         # 액션 실행 중에도 구독 콜백이 계속 들어와야 하므로 재진입 그룹을
         # 씁니다. 기본 그룹이면 execute 루프가 콜백을 막아 마커 관측이
@@ -113,6 +132,10 @@ class DockingServer(Node):
         # 각도를 잴 수 없습니다.
         self.create_subscription(
             Odometry, "odom", self._on_odom, 10, callback_group=group,
+        )
+        self.create_subscription(
+            LaserScan, "scan", self._on_scan, qos_profile_sensor_data,
+            callback_group=group,
         )
 
         self._cmd_pub = self.create_publisher(Twist, "cmd_vel_docking", 10)
@@ -149,6 +172,29 @@ class DockingServer(Node):
     def _on_odom(self, msg: Odometry):
         q = msg.pose.pose.orientation
         self._yaw = yaw_from_quaternion(q.x, q.y, q.z, q.w)
+        self._position = (msg.pose.pose.position.x, msg.pose.pose.position.y)
+
+    def _on_scan(self, msg: LaserScan):
+        self._scan = msg
+
+    def _front_range(self):
+        if self._scan is None:
+            return math.inf
+        return front_clearance(
+            self._scan.ranges,
+            self._scan.angle_min,
+            self._scan.angle_increment,
+            self._scan.range_min,
+            self._scan.range_max,
+        )
+
+    def _crept(self):
+        if self._position is None or self._creep_origin is None:
+            return 0.0
+        return math.hypot(
+            self._position[0] - self._creep_origin[0],
+            self._position[1] - self._creep_origin[1],
+        )
 
     def _on_station(self, msg: Bool):
         """스테이션 A3144 홀 센서가 로봇 자석을 감지했다는 신호.
@@ -190,6 +236,7 @@ class DockingServer(Node):
         self._busy = True
         self._station_confirmed = False
         self._turn.reset()
+        self._creep_origin = self._position
         self._target_id = marker_id
         self._last_seen = None
         started = self.get_clock().now()
@@ -211,24 +258,25 @@ class DockingServer(Node):
                     else math.inf
                 )
 
-                # 회전 단계에 막 들어섰으면 그 순간의 yaw 를 기준점으로
-                # 잡습니다. 접근하는 동안 돌아간 각도가 섞이면 안 됩니다.
-                was_turning = session.phase is DockingPhase.TURNING
-                turned = self._turn.turned if was_turning else 0.0
-
+                previous = session.phase
                 step = session.step(
                     elapsed,
                     marker_age,
                     observation,
                     self._station_confirmed,
-                    turn_progress=turned,
+                    turn_progress=self._turn.turned,
+                    creep_progress=self._crept(),
+                    front_range=self._front_range(),
                 )
 
-                if step.phase is DockingPhase.TURNING:
-                    if not was_turning:
-                        self._turn.reset()
-                    if self._yaw is not None:
-                        self._turn.update(self._yaw)
+                # 단계가 바뀌었거나 탐색이 요청하면 누적기를 되돌립니다.
+                # 이전 단계에서 쌓인 값이 섞이면 들어오자마자 "다 돌았다" 로
+                # 오판합니다.
+                if step.phase is not previous or step.restart_odometry:
+                    self._turn.reset()
+                    self._creep_origin = self._position
+                if self._yaw is not None:
+                    self._turn.update(self._yaw)
                 self._publish(step)
 
                 if step.finished:
