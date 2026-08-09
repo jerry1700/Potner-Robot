@@ -36,7 +36,11 @@ class DockingPhase(Enum):
 
 @dataclass
 class SessionLimits:
-    marker_lost_timeout: float = 2.0  # 이 시간 넘게 마커를 못 보면 정지
+    # 마커를 놓친 뒤 이 시간까지는 **멈춰서** 재검출을 기다리고, 넘겨야
+    # 탐색 회전을 시작합니다. 놓침의 대부분은 자기 움직임이 만든 번짐이라
+    # 멈추면 몇 프레임 안에 다시 잡히는데, 곧바로 돌기 시작하면 방금까지
+    # 잘 보이던 마커를 화면 밖으로 밀어내 버립니다 (실기에서 당했습니다).
+    marker_lost_timeout: float = 2.0
     docking_timeout: float = 90.0  # 전체 제한. 무한 루프 방지
     confirm_timeout: float = 5.0  # 스테이션 접점을 기다리는 시간
 
@@ -158,6 +162,19 @@ class DockingSession:
                 and elapsed > self.limits.search_timeout
             ):
                 return self._finish(DockingPhase.FAILED, "마커를 찾지 못함")
+
+            # ★ 방금 전까지 보였다면 아직 돌지 않습니다. 카메라가 한 프레임
+            #   놓치는 건 (회전 번짐 때문에) 흔한 일인데, 그때마다 즉시 탐색
+            #   회전을 시작하면 그 회전이 마커를 화면 밖으로 밀어냅니다 —
+            #   실기에서 "잘 찾다가도 놓치는" 원인이었습니다. 멈춰 있으면
+            #   번짐이 사라져 보통 다음 몇 프레임 안에 다시 잡힙니다.
+            #   restart_odometry 로 누적기를 계속 비워, 회전을 시작할 때
+            #   대기 중 흘러든 각도가 한 바퀴 판정에 섞이지 않게 합니다.
+            if marker_age <= self.limits.marker_lost_timeout:
+                return DockingStep(
+                    self.phase, 0.0, 0.0, "마커 재검출 대기", None,
+                    restart_odometry=True,
+                )
 
             found = self.search.step(turn_progress, creep_progress, front_range)
             return DockingStep(
