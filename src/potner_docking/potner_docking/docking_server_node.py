@@ -55,7 +55,7 @@ class DockingServer(Node):
         self.declare_parameter("docking_timeout", 90.0)
         self.declare_parameter("confirm_timeout", 5.0)
         self.declare_parameter("search_timeout", 0.0)
-        self.declare_parameter("turn_after_dock_deg", 170.0)
+        self.declare_parameter("turn_after_dock_deg", 180.0)
         self.declare_parameter("turn_speed", 0.5)
         self.declare_parameter("turn_slow_angle_deg", 60.0)
         self.declare_parameter("turn_min_speed", 0.15)
