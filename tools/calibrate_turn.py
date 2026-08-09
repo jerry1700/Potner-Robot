@@ -10,8 +10,11 @@
     # 1단계: 로봇을 3바퀴 돌립니다 (약 40초)
     python3 tools/calibrate_turn.py
 
-    # 2단계: 자로 잰 값을 넣으면 새 축간거리를 계산합니다
-    python3 tools/calibrate_turn.py --front 0.05 --rear -0.03 --length 0.30
+    # 2단계-A: 눈대중 각도로 (쉬움)
+    python3 tools/calibrate_turn.py --deviation 15
+
+    # 2단계-B: 자로 잰 값으로 (정확함)
+    python3 tools/calibrate_turn.py --front 0.09 --rear 0.02 --length 0.30
 
 준비물: 바닥에 붙일 테이프 한 줄, 자.
 
@@ -30,15 +33,10 @@ STOP_MARGIN = math.radians(2.0)  # 정지 지연을 감안해 일찍 멈춥니�
 CONTROL_PERIOD = 0.05  # 20Hz
 
 
-def compute(front, rear, length, configured, turns):
-    """자로 잰 값으로 새 축간거리를 계산해 출력합니다."""
-    from potner_base.wheel_calibration import (
-        corrected_separation,
-        deviation_from_offsets,
-        plausible,
-    )
+def compute(deviation, configured, turns):
+    """틀어진 각도로 새 축간거리를 계산해 출력합니다."""
+    from potner_base.wheel_calibration import corrected_separation, plausible
 
-    deviation = deviation_from_offsets(front, rear, length)
     odometry = 360.0 * turns
     actual = odometry + deviation
     corrected = corrected_separation(configured, odometry, actual)
@@ -139,19 +137,23 @@ def run_turns(turns):
             rclpy.shutdown()
 
     print("\n회전이 끝났습니다.\n")
-    print("이제 자로 재세요 —")
-    print("  1. 시작 전에 붙여둔 테이프 선과 로봇 옆면을 비교합니다")
-    print("  2. 로봇 '앞끝'이 선에서 몇 m 떨어졌는지 (선 왼쪽이면 +)")
-    print("  3. 로봇 '뒤끝'이 선에서 몇 m 떨어졌는지 (부호 규약 같음)")
-    print("  4. 로봇 앞끝~뒤끝 길이 (m)")
-    print("\n그리고 이렇게 실행하세요 (숫자는 예시입니다):")
-    print("  python3 tools/calibrate_turn.py --front 0.05 --rear -0.03 --length 0.30")
+    print("3바퀴를 돌았으니 로봇은 처음 방향으로 돌아와 있어야 합니다.")
+    print("시작 전에 붙여둔 테이프 선과 로봇 옆면을 비교하세요.\n")
+    print("[쉬운 방법] 눈대중으로 몇 도 틀어졌는지만 보고:")
+    print("  python3 tools/calibrate_turn.py --deviation 15")
+    print("  (왼쪽으로 더 돌았으면 양수, 덜 돌았으면 음수)\n")
+    print("[정확한 방법] 옆면과 테이프 사이 간격을 앞뒤로 재서:")
+    print("  python3 tools/calibrate_turn.py --front 0.09 --rear 0.02 --length 0.30")
+    print("  (앞끝 간격 / 뒤끝 간격 / 로봇 길이, 단위는 m)")
     return 0
 
 
 def main():
     parser = argparse.ArgumentParser(description="축간거리 실측 보정")
     parser.add_argument("--turns", type=int, default=3, help="돌릴 바퀴 수")
+    parser.add_argument(
+        "--deviation", type=float, help="눈대중으로 본 틀어진 각도 (deg)"
+    )
     parser.add_argument("--front", type=float, help="앞끝이 기준선에서 떨어진 거리 (m)")
     parser.add_argument("--rear", type=float, help="뒤끝이 기준선에서 떨어진 거리 (m)")
     parser.add_argument("--length", type=float, help="로봇 앞끝~뒤끝 길이 (m)")
@@ -160,10 +162,17 @@ def main():
     )
     args = parser.parse_args()
 
+    if args.deviation is not None:
+        return compute(args.deviation, args.configured, args.turns)
+
     measured = (args.front, args.rear, args.length)
     if all(value is not None for value in measured):
+        from potner_base.wheel_calibration import deviation_from_offsets
+
         return compute(
-            args.front, args.rear, args.length, args.configured, args.turns
+            deviation_from_offsets(args.front, args.rear, args.length),
+            args.configured,
+            args.turns,
         )
     if any(value is not None for value in measured):
         print("--front, --rear, --length 는 셋 다 필요합니다.", file=sys.stderr)
