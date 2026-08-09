@@ -58,6 +58,7 @@ from potner_bridge.navigate_contract import (
     navigate_command_json,
     parse_navigate_command,
 )
+from potner_bridge.sensor_window import SensorWindow
 from potner_bridge.telemetry import (
     SensorType,
     battery_message,
@@ -107,8 +108,15 @@ class MqttBridge(Node):
         self._state_topic = state_topic(self._device_id)
         self._battery_topic = battery_topic(self._device_id)
 
-        # 센서 종류별로 마지막 측정값과 측정 시각을 들고 있습니다.
-        # measuredAt 은 발행 시각이 아니라 실제로 읽은 시각이어야 합니다.
+        # 센서 종류별로 발행 주기 동안의 측정값을 모읍니다. 새 값으로
+        # 덮어쓰면 2초 주기로 잰 5개 중 4개가 버려지고, 서버는 살아남은
+        # 순간값 하나를 10초 내내 유지된 것으로 적분합니다 — 잠깐 튄 값이
+        # 10초치 광량이 됩니다. sensor_window.py 머리말 참고.
+        self._windows = {
+            sensor_type: SensorWindow() for _topic, sensor_type in SENSOR_SOURCES
+        }
+        # 창을 닫아 만든 발행 대기값. measuredAt 은 발행 시각이 아니라
+        # 실제로 읽은 시각(그 창의 첫 표본 시각)입니다.
         self._latest = {}
         self._battery = None
         self._state = None
@@ -395,10 +403,10 @@ class MqttBridge(Node):
     # --- ROS ---
 
     def _capture(self, sensor_type: str):
-        """센서값을 종류별로 저장하는 콜백을 만듭니다."""
+        """센서값을 종류별로 창에 누적하는 콜백을 만듭니다."""
 
         def callback(msg):
-            self._latest[sensor_type] = (float(msg.data), now_utc())
+            self._windows[sensor_type].add(float(msg.data), now_utc())
 
         return callback
 
@@ -444,6 +452,14 @@ class MqttBridge(Node):
         서버는 여러 센서를 묶은 메시지를 받지 않습니다. 한 번 보낸 값은
         지워서, 센서가 죽었을 때 같은 값을 계속 올리지 않게 합니다.
         """
+        # 창은 클라이언트 상태와 무관하게 닫습니다. 끊긴 동안 열어두면 그
+        # 시간 전체가 표본 하나의 평균이 되어, 짧은 구간의 변화가 뭉개진
+        # 채로 긴 gap 에 곱해집니다.
+        for sensor_type, window in self._windows.items():
+            taken = window.take()
+            if taken is not None:
+                self._latest[sensor_type] = taken
+
         if self._client is None:
             return
 
