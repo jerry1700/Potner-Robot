@@ -8,6 +8,7 @@ BUSY 로 거부되고, 좌표를 잘못 옮겨 적었습니다.
 
     python3 tools/demo.py where              지금 좌표 보기
     python3 tools/demo.py save home          지금 자리를 HOME 으로 기억
+    python3 tools/demo.py save home 0 0 0    좌표를 직접 지정 (원점 = 띄운 자리)
     python3 tools/demo.py save station       (스테이션 정면 50cm, 마커 정면)
     python3 tools/demo.py save greeting
     python3 tools/demo.py save sun
@@ -197,18 +198,25 @@ def cmd_where(robot):
     return 0
 
 
-def cmd_save(robot, name):
-    if name not in PLACES:
-        print(f"모르는 자리입니다: {name} (가능: {', '.join(PLACES)})")
-        return 2
-    if not robot.wait_for_pose():
-        print("오도메트리가 없습니다. base_driver 가 떴는지 확인하세요.")
-        return 1
+def cmd_save(robot, name, explicit=None):
+    """지금 자리를, 또는 직접 준 좌표를 저장합니다.
+
+    좌표를 직접 주는 길이 필요한 이유 - 시작 위치(원점 0,0,0)를 HOME 으로
+    두고 싶은데, 로봇이 이미 다른 데 가 있으면 저장하러 되돌아가야 합니다.
+    """
+    if explicit is not None:
+        pose = explicit
+    else:
+        if not robot.wait_for_pose():
+            print("오도메트리가 없습니다. base_driver 가 떴는지 확인하세요.")
+            return 1
+        pose = robot.pose
+
     poses = load()
-    poses[name] = robot.pose
+    poses[name] = pose
     store(poses)
     print(f"{name} 저장했습니다.")
-    print(describe(name, robot.pose))
+    print(describe(name, pose))
     return 0
 
 
@@ -318,12 +326,32 @@ def main():
             print(f"모르는 자리입니다: {args[1]} (가능: {', '.join(PLACES)})")
             return 2
 
+    explicit = None
+    if action == "save" and len(args) > 2:
+        if len(args) != 5:
+            print("좌표를 직접 줄 때는 셋 다 필요합니다:  save home 0 0 0")
+            return 2
+        try:
+            explicit = {
+                "x": round(float(args[2]), 3),
+                "y": round(float(args[3]), 3),
+                "yaw": round(float(args[4]), 3),
+            }
+        except ValueError:
+            print("좌표는 숫자여야 합니다:  save home 0 0 0")
+            return 2
+        if abs(explicit["yaw"]) > 3.1416:
+            print("yaw 는 -3.1416 ~ 3.1416 (라디안) 이어야 합니다.")
+            return 2
+        # 좌표만 넣는 것이라 ROS 에 붙을 이유가 없습니다.
+        return cmd_save(None, args[1], explicit)
+
     robot = Robot()
     try:
         if action == "where":
             return cmd_where(robot)
         if action == "save":
-            return cmd_save(robot, args[1])
+            return cmd_save(robot, args[1], explicit)
         if action == "go":
             return cmd_go(robot, args[1])
         return cmd_welcome(robot)
