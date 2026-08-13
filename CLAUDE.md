@@ -49,7 +49,6 @@ python -m flake8 . --count --select=E9,F63,F7,F82 \
 | `docs/MQTT_CONTRACT.md` | 브로커 ACL이 막는 것들 — cross-device 구독 불가 |
 | `docs/LLM_CAPABILITIES.md` | LLM이 답할 수 있는 것/없는 것 |
 | `docs/LLM_SENSOR_INTEGRATION_PLAN.md` | 센서 실측값 연동 — 서버 대기 중, 전환 절차 포함 |
-| `NEXT_SESSION.md` | **다음 세션 시작 시 먼저 읽을 것** |
 
 ## 커밋·브랜치
 
