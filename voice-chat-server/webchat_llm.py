@@ -80,9 +80,9 @@ class WebChatLLM:
                     parts.append(delta)
                     yield delta
             except requests.exceptions.ConnectionError:
-                logger.error("웹 챗 서버 연결 실패: %s", self.base_url)
+                logger.error(f"웹 챗 서버 연결 실패: {self.base_url}")
             except Exception as exc:  # noqa: BLE001 — 어떤 실패든 대화는 계속돼야 한다
-                logger.error("웹 챗 LLM 호출 실패: %s", exc)
+                logger.error(f"웹 챗 LLM 호출 실패: {exc}")
             reply = "".join(parts).strip()
             if reply:
                 session.history.append({"role": "user", "content": message})
@@ -184,7 +184,7 @@ class WebChatLLM:
             )
             summary = resp.json().get("summary", "")
         except Exception as exc:  # noqa: BLE001
-            logger.warning("요약 실패 (자르지 않고 다음 턴에 재시도): %s", exc)
+            logger.warning(f"요약 실패 (자르지 않고 다음 턴에 재시도): {exc}")
             return
         if not summary:
             logger.warning("요약이 비어 있음 — 자르지 않고 다음 턴에 재시도")

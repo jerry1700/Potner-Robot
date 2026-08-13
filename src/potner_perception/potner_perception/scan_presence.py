@@ -34,7 +34,7 @@ ROS 에 의존하지 않으므로 CI 에서 검증됩니다.
 """
 
 import math
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 # 성인 다리 한 짝의 폭 가정. 스캔 평면(바닥 52cm)이 허벅지를 지납니다.
 LEG_WIDTH_M = 0.12

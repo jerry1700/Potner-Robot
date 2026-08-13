@@ -81,7 +81,7 @@ class MockNavActions(Node):
 
     # --- 설정 ---
 
-    def _outcome(self, name: str) -> str:
+    def _outcome(self, name):
         value = self.get_parameter(name).value
         if value not in OUTCOMES:
             self.get_logger().error(
@@ -91,15 +91,15 @@ class MockNavActions(Node):
             return "succeed"
         return value
 
-    def _duration(self) -> float:
+    def _duration(self):
         return max(0.0, float(self.get_parameter("duration").value))
 
-    def _accept(self, name: str) -> GoalResponse:
+    def _accept(self, name):
         if self._outcome(name) == "reject":
             return GoalResponse.REJECT
         return GoalResponse.ACCEPT
 
-    def _run(self, goal_handle, outcome: str, tick) -> bool:
+    def _run(self, goal_handle, outcome, tick):
         """진행하는 척하다가 결과를 정한다. 끝까지 갔으면 True."""
         if outcome == "hang":
             # 결과를 영영 돌려주지 않습니다. mission_manager 가 스스로

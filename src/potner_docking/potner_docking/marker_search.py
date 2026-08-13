@@ -24,7 +24,7 @@ ROS 에 의존하지 않으므로 CI 에서 검증됩니다.
 """
 
 import math
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 
 @dataclass(frozen=True)

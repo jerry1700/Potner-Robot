@@ -16,8 +16,9 @@ from dataclasses import dataclass
 
 @dataclass
 class DockingGains:
-    """TODO: 실기에서 재튜닝. 진동하면 kp 를 낮추고, 굼뜨면 올리세요.
+    """도킹 P 제어 게인.
 
+    TODO: 실기에서 재튜닝 — 진동하면 kp 를 낮추고, 굼뜨면 올리세요.
     아래는 애커만 시절 게인을 각속도(rad/s) 기준으로 환산한 출발점입니다.
     """
 

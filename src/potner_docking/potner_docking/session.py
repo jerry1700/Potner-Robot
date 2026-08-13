@@ -19,6 +19,7 @@ ROS와 시계에 의존하지 않는 순수 파이썬 모듈입니다. 경과 �
 import math
 from dataclasses import dataclass
 from enum import Enum
+from typing import Optional
 
 from potner_docking.approach_controller import DockingGains, compute
 from potner_docking.marker_search import MarkerSearch, SearchConfig
@@ -127,7 +128,7 @@ class DockingSession:
         self,
         elapsed: float,
         marker_age: float,
-        observation,
+        observation: Optional[tuple],
         station_confirmed: bool = False,
         turn_progress: float = 0.0,
         creep_progress: float = 0.0,

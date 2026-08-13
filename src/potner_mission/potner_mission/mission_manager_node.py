@@ -317,14 +317,14 @@ class MissionManager(Node):
         self._transition(MissionState.IDLE)
         self._begin_return_home("사용자 인식")
 
-    def _start_arrival_timeout(self, seconds: int):
+    def _start_arrival_timeout(self, seconds):
         if self._arrival_timeout_timer is not None:
             self._arrival_timeout_timer.cancel()
         self._arrival_timeout_timer = self.create_timer(
             float(seconds), self._on_arrival_timeout
         )
 
-    def _start_arrival_wait(self, seconds: int):
+    def _start_arrival_wait(self, seconds):
         if self._arrival_wait_timer is not None:
             self._arrival_wait_timer.cancel()
         self._arrival_wait_timer = self.create_timer(
@@ -368,7 +368,7 @@ class MissionManager(Node):
                 self._publish_arrival_result(result)
         self._begin_return_home("전체 제한시간 만료", reset_timeout=True)
 
-    def _begin_return_home(self, reason: str, reset_timeout: bool = False):
+    def _begin_return_home(self, reason, reset_timeout=False):
         session = self._arrival.active
         if session is None:
             return
@@ -398,7 +398,7 @@ class MissionManager(Node):
 
     # --- 이동 ---
 
-    def _start_arrival_navigation(self, map_pose, purpose: str):
+    def _start_arrival_navigation(self, map_pose, purpose):
         """서버가 보낸 지도 좌표를 실제 Nav2 목표로 실행합니다."""
         pose = self._map_pose(map_pose)
         if self.get_parameter("skip_navigation").value:
@@ -461,7 +461,7 @@ class MissionManager(Node):
         pose.pose.orientation.w = math.cos(yaw / 2.0)
         return pose
 
-    def _on_nav_accepted(self, future, purpose: str, generation: int):
+    def _on_nav_accepted(self, future, purpose, generation):
         handle = future.result()
         if generation != self._nav_generation:
             if handle.accepted:
@@ -480,7 +480,7 @@ class MissionManager(Node):
             )
         )
 
-    def _on_nav_done(self, future, purpose: str, generation: int):
+    def _on_nav_done(self, future, purpose, generation):
         if generation != self._nav_generation:
             return
         self._nav_goal_handle = None
@@ -498,7 +498,7 @@ class MissionManager(Node):
 
         self._handle_nav_success(purpose)
 
-    def _handle_nav_success(self, purpose: str):
+    def _handle_nav_success(self, purpose):
         if purpose == NAV_SERVER:
             session = self._navigate.active
             if session is None:
@@ -538,7 +538,7 @@ class MissionManager(Node):
             self.get_logger().info("HOME 복귀 완료.")
             self._transition(MissionState.IDLE)
 
-    def _handle_nav_failure(self, purpose: str, error: str, code: str):
+    def _handle_nav_failure(self, purpose, error, code):
         if purpose == NAV_SERVER:
             self._finish_server_navigation(error=error, code=code)
             return
@@ -561,7 +561,7 @@ class MissionManager(Node):
 
     # --- 서버 이동 결과 ---
 
-    def _navigate_marker_id(self, destination: str):
+    def _navigate_marker_id(self, destination):
         """도킹이 필요한 목적지면 마커 번호, 아니면 None.
 
         물리 장치가 있는 곳은 급수 스테이션뿐입니다. 나머지는 지도 위
@@ -582,7 +582,7 @@ class MissionManager(Node):
             return MissionState.SERVICING
         return MissionState.IDLE
 
-    def _finish_server_navigation(self, error: str = None, code: str = None):
+    def _finish_server_navigation(self, error=None, code=None):
         """이동 명령 하나를 끝내고 서버에 회신합니다.
 
         ``OK`` 는 출발이 아니라 **도착(도킹 완료)** 을 뜻합니다. 서버는 이
@@ -656,7 +656,7 @@ class MissionManager(Node):
 
     # --- 도킹 ---
 
-    def _start_docking(self, marker_id: int):
+    def _start_docking(self, marker_id):
         """마커를 보며 스테이션에 정밀하게 붙습니다.
 
         서버 이동 명령에서만 씁니다. 도킹하는 목적지는 급수 스테이션

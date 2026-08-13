@@ -89,7 +89,7 @@ class BaseDriver(Node):
             )
             return None
 
-    def _write(self, frame: str):
+    def _write(self, frame):
         if self._serial is None:
             return
         try:

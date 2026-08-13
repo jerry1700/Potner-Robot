@@ -91,8 +91,6 @@ _AUDIO_EXTENSIONS = {
 
 def _load_env_file(path: Path) -> None:
     """potner_llm cli.py와 동일 — python-dotenv 의존 없이 .env를 직접 읽는다."""
-    import os
-
     if not path.exists():
         return
     for line in path.read_text(encoding="utf-8").splitlines():
@@ -205,7 +203,7 @@ class VoiceChatApp:
                     audio, filename=filename, content_type=content_type
                 )
             except Exception as exc:  # noqa: BLE001 — 로컬 실패가 대화를 끊으면 안 된다
-                logger.error("로컬 STT 실패, GMS로 폴백: %s", exc)
+                logger.error(f"로컬 STT 실패, GMS로 폴백: {exc}")
         return self.speech.transcribe(
             audio, filename=filename, content_type=content_type
         )
@@ -324,7 +322,7 @@ async def voice_chat(
             blob, filename=f"speech.{extension}", content_type=content_type
         )
     except SpeechApiError as exc:
-        logger.error("STT 실패: %s", exc)
+        logger.error(f"STT 실패: {exc}")
         return _error(502, MSG_STT_ERROR)
     if not user_text:
         return _error(422, MSG_NO_SPEECH)
@@ -339,14 +337,14 @@ async def voice_chat(
     try:
         chunk = state.speech.synthesize(strip_markdown(reply_text))
     except SpeechApiError as exc:
-        logger.error("TTS 실패 (텍스트만 반환): %s", exc)
+        logger.error(f"TTS 실패 (텍스트만 반환): {exc}")
     else:
         turn.send(chunk, final=True)
         if state.sink.plays_on_browser:
             audio_b64 = base64.b64encode(chunk).decode("ascii")
 
     elapsed_ms = round((time.monotonic() - started) * 1000)
-    logger.info("voice-chat 완료 session=%s %dms", session_id, elapsed_ms)
+    logger.info(f"voice-chat 완료 session={session_id} {elapsed_ms}ms")
 
     # d. 모니터 페이지로 중계 (오디오는 무거워서 텍스트만)
     broadcaster.publish(
@@ -398,7 +396,7 @@ async def text_chat(request: Request) -> JSONResponse:
     response_start_ms = (
         round((first_delta_time - started) * 1000) if first_delta_time else None
     )
-    logger.info("text-chat 완료 session=%s %dms", session_id, elapsed_ms)
+    logger.info(f"text-chat 완료 session={session_id} {elapsed_ms}ms")
 
     broadcaster.publish(
         {
@@ -461,7 +459,7 @@ async def voice_chat_stream(
                 blob, filename=f"speech.{extension}", content_type=content_type
             )
         except SpeechApiError as exc:
-            logger.error("STT 실패: %s", exc)
+            logger.error(f"STT 실패: {exc}")
             yield _sse("error", {"message": MSG_STT_ERROR})
             return
         if not user_text:
@@ -527,7 +525,7 @@ async def voice_chat_stream(
             round((first_delta_time - started) * 1000) if first_delta_time else None
         )
         yield _sse("done", {"elapsed_ms": elapsed_ms})
-        logger.info("voice-chat-stream 완료 session=%s %dms", session_id, elapsed_ms)
+        logger.info(f"voice-chat-stream 완료 session={session_id} {elapsed_ms}ms")
 
         # c. 모니터 중계 — 이 제너레이터는 스레드풀에서 돌므로 루프로 넘겨서 publish
         loop.call_soon_threadsafe(
@@ -562,7 +560,7 @@ def end_session(session_id: str = Form("voice")) -> dict[str, Any]:
     try:
         state.sink.cancel()
     except Exception as exc:  # noqa: BLE001 — 정리 실패가 응답을 막으면 안 된다
-        logger.warning("재생 중단 신호 실패: %s", exc)
+        logger.warning(f"재생 중단 신호 실패: {exc}")
     return {"success": True, "saved": saved}
 
 
@@ -572,7 +570,7 @@ def _release_sink() -> None:
     try:
         state.sink.close()
     except Exception as exc:  # noqa: BLE001
-        logger.warning("오디오 싱크 정리 실패: %s", exc)
+        logger.warning(f"오디오 싱크 정리 실패: {exc}")
 
 
 def _error(status: int, message: str) -> JSONResponse:
@@ -602,9 +600,9 @@ def _warm_fillers() -> None:
         try:
             _filler_cache.append(state.speech.synthesize(text))
         except SpeechApiError as exc:
-            logger.warning("필러 합성 실패 (없어도 동작): %s", exc)
+            logger.warning(f"필러 합성 실패 (없어도 동작): {exc}")
     _filler_ready.set()
-    logger.info("필러 음성 %d개 준비 완료", len(_filler_cache))
+    logger.info(f"필러 음성 {len(_filler_cache)}개 준비 완료")
 
 
 def _pick_filler() -> Optional[bytes]:
@@ -630,7 +628,7 @@ def _tts_job(text: str) -> Optional[bytes]:
     try:
         return state.speech.synthesize(text)
     except SpeechApiError as exc:
-        logger.error("TTS 조각 실패: %s", exc)
+        logger.error(f"TTS 조각 실패: {exc}")
         return None
 
 
@@ -666,8 +664,7 @@ class TurnAudio:
         try:
             state.sink.emit(self.turn_id, seq, audio, final=final)
         except Exception as exc:  # noqa: BLE001 — 스피커 실패가 대화를 끊으면 안 된다
-            logger.error("스피커로 조각을 보내지 못했습니다 (%s#%d): %s",
-                         self.turn_id, seq, exc)
+            logger.error(f"스피커로 조각을 보내지 못했습니다 ({self.turn_id}#{seq}): {exc}")
 
         if not state.sink.plays_on_browser:
             return ""

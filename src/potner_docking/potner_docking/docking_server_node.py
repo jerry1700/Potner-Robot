@@ -35,7 +35,7 @@ from std_msgs.msg import Bool, Int32, String
 
 from potner_docking.approach_controller import DockingGains
 from potner_docking.marker_search import SearchConfig, front_clearance
-from potner_docking.session import DockingPhase, DockingSession, SessionLimits
+from potner_docking.session import DockingSession, SessionLimits
 from potner_docking.turn_tracker import TurnAccumulator, yaw_from_quaternion
 from potner_msgs.action import DockToStation
 
