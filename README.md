@@ -7,6 +7,23 @@
 담당합니다. 다른 파트는 별도 브랜치에 있습니다 — `App-master`(Flutter),
 `Server-master`(Spring Boot), `Raspberry-master`(장치 스테이션).
 
+## 무엇을 하는 로봇인가
+
+포트너는 **화분을 싣고 다니는 로봇**입니다. 판단은 서버가, 수행은 로봇이
+맡습니다.
+
+- **자율 급수** — 토양 수분이 부족하면 서버가 임무를 내리고, 로봇은 어느
+  위치에 있든 SLAM 지도 위에서 장치 스테이션까지 찾아갑니다. ArUco 마커로
+  정밀 도킹하면 스테이션(라즈베리파이)이 급수·촬영·송풍을 수행하고, 끝나면
+  대기 장소로 복귀합니다.
+- **햇빛 찾아가기·귀가 마중** — 서버의 좌표 명령(`command/navigate`)으로
+  창가 등 지정 위치로 이동하고, 사용자가 귀가하면 현관에서 맞이합니다
+  (LiDAR 사람 감지).
+- **음성 대화** — 말을 걸면 STT→LLM→TTS로 식물 페르소나가 답합니다. 센서
+  실측값과 어긋나는 답은 사실성 검증이 걸러냅니다.
+- **표정** — 7인치 화면이 상태에 따라 표정을 바꿉니다.
+- **안전 정지** — LiDAR·범퍼 감지가 다른 모든 주행 명령보다 우선합니다.
+
 ## 완성 모습 (2026-08-13 시연)
 
 | 표정 화면 — 7인치 LCD와 카메라 | 스테이션 도킹 |
@@ -17,14 +34,26 @@
 
 <img src="docs/media/demo-scene.jpg" width="810" alt="시연장에서 스테이션으로 이동하는 모습">
 
-시연 영상 — 표정 화면과 마커 도킹:
+### 시연 영상
+
+**자동 급수 전체 시나리오** — 물이 부족하면 임의의 위치에서 스테이션을
+찾아가 필요한 행동을 마치고 대기 장소로 복귀합니다:
+
+![자동 급수 전체 시나리오](docs/media/demo-mission.mp4)
+
+**스테이션 자동 도킹과 급수** — 마커 도킹부터 급수까지 가까이에서 본 장면:
+
+![스테이션 자동 도킹과 급수](docs/media/demo-watering.mp4)
+
+짧은 클립 — 표정 화면, 마커 도킹 정면:
 
 ![표정 시연 영상](docs/media/demo-face.mp4)
 
 ![도킹 시연 영상](docs/media/demo-docking.mp4)
 
 원본 사진·영상 전체(약 200MB)는 저장소 용량 정책상 커밋하지 않습니다
-(`.gitignore`의 `image/` 참고 — 공유는 팀 드라이브를 쓰세요).
+(`.gitignore`의 `image/` 참고 — 공유는 팀 드라이브를 쓰세요. 위 영상은
+640p로 압축한 것입니다).
 
 ## 시스템 구성
 
@@ -258,40 +287,6 @@ ros2 launch potner_bringup nav2.launch.py map:=$HOME/potner_ws/maps/home.yaml
 `src/potner_firmware/README.md` 참고. **바퀴를 공중에 띄운 채로** 첫
 동작을 확인하세요.
 
-## 모터 없이 도킹 제어 검증하기
-
-모터가 없어도 **`cmd_vel_docking` 값을 보면 제어 루프 전체를 확인**할 수
-있습니다. 하드웨어를 기다릴 필요가 없습니다.
-
-```bash
-# 터미널 1 — 카메라 + 마커 탐지 + 도킹 서버
-ros2 launch potner_bringup robot.launch.py use_lidar:=false
-
-# 터미널 2 — 나가는 주행 명령 관찰
-ros2 topic echo /cmd_vel_docking
-
-# 터미널 3 — 도킹 목표 전송 (마커 2번 = 스테이션)
-ros2 action send_goal /dock_to_station potner_msgs/action/DockToStation \
-    "{marker_id: 2}" --feedback
-```
-
-마커를 손에 들고 움직이며 확인할 것:
-
-| 마커를 이렇게 | 기대 동작 |
-|---|---|
-| 화면 오른쪽으로 | `angular.z` 양수 |
-| 화면 왼쪽으로 | `angular.z` 음수 |
-| 멀리 (1m) | `linear.x` 약 0.12 |
-| 15cm 안쪽으로 | `linear.x` 0, 각도만 보정 |
-| 정면으로 가까이 고정 | `CONFIRMING` → 5초 후 성공 |
-| 카메라에서 숨김 | 2초 후 전부 0 (정지) |
-
-마지막 항목이 특히 중요합니다. 마커를 놓쳤을 때 멈추지 않으면 실기에서
-스테이션을 들이받습니다.
-
-`--feedback` 을 붙이면 단계(`SEARCHING`/`APPROACHING`/`ALIGNING`/
-`CONFIRMING`)와 실시간 오차가 같이 보입니다.
-
 ## 주행 명령의 흐름
 
 여러 노드가 동시에 모터를 건드리지 못하도록 `twist_mux` 가 중재합니다.
@@ -307,24 +302,6 @@ ros2 action send_goal /dock_to_station potner_msgs/action/DockToStation \
 최종 `/cmd_vel` 만 `base_driver` 가 받아 ESP32로 내려보냅니다. 긴급정지
 플래그를 손으로 관리하지 않는 이유가 이것입니다.
 
-## 조립 후 반드시 채워야 할 값
-
-`src/potner_bringup/config/potner_params.yaml` 과
-`src/potner_description/urdf/potner.urdf.xacro` 에 `TODO` 로 표시해 두었습니다.
-
-| 값 | 왜 중요한가 |
-|---|---|
-| `wheel_diameter` | 틀리면 로봇이 지도에서 흘러갑니다 |
-| `wheel_separation` | 틀리면 회전량이 어긋나 지도가 뒤틀립니다 |
-| `lidar_height` | 폴 위 LiDAR의 높이. 스캔이 엉뚱한 곳에 찍힙니다 |
-| `marker_size` | 인쇄한 ArUco 마커 실측. 도킹 거리 오차의 원인 |
-| `focal_length_px` | `cv2.calibrateCamera` 로 BRIO 100 캘리브레이션 |
-
-`counts_per_rev: 5760` 은 **실측값**입니다. 사양서의 "1440 CPR" 은 채널당
-사이클 수이고 쿼드러처 4배수를 곱해야 실제 카운트가 됩니다. 손으로 바퀴를
-한 바퀴 돌려 5,941카운트로 확인했습니다. **1440 으로 되돌리면 로봇이 명령의
-1/4 속도로만 움직이고 오도메트리도 4배 틀어집니다.**
-
 ## 테스트
 
 ```bash
@@ -333,20 +310,3 @@ pytest tests/ -v
 
 ROS 2 없이 돌아갑니다. 젠킨스 CI가 이 테스트와 flake8 문법 검사를
 자동으로 실행합니다 ([Jenkinsfile](Jenkinsfile)).
-
-## 다음 작업
-
-- [x] YDLIDAR 드라이버 연동 — `/scan` 약 11Hz 확인
-- [x] 카메라 + ArUco 마커 인식 — `/image_raw` 29Hz, 마커 ID 확인
-- [x] `DockToStation` 액션 서버 및 `mission_manager` 연결
-- [x] 토픽 연결 전수 검사 — 발행자·구독자 없는 토픽 해소
-- [ ] BH1750·ADS1115 납땜 후 `plant_sensors` 실기 확인
-- [ ] 토양 수분 보정값 실측 (`moisture_raw_dry` / `moisture_raw_wet`)
-- [ ] 스테이션 팀과 `potner/station/telemetry` JSON 키 합의
-- [ ] 카메라 초점거리 보정 (`focal_calibrator`)
-- [ ] ESP32 펌웨어 실기 검증 및 PID 튜닝
-- [ ] 축간거리(`wheel_separation`) 실측
-- [ ] SLAM 지도 생성 후 서버에 목적지 좌표 등록 (`PUT /robots/{id}/locations/{type}/pose`)
-- [ ] YOLO TensorRT 변환 (`yolo export format=engine`)
-- [ ] 스테이션 완성 후 `require_station_confirm: true` 로 전환
-- [ ] `legacy/sensors/ultrasonic.py` 를 `Raspberry-master` 로 이관
