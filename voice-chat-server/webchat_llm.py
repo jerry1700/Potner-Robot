@@ -59,7 +59,7 @@ class WebChatLLM:
         self._sessions: dict[str, _Session] = {}
         self._lock = threading.Lock()
 
-    # ------------------------------------------------------------ 공개 API
+    # --- 공개 API ---
 
     def chat_once(self, session_id: str, message: str) -> str:
         """질문 → 초록이 응답. 예외를 던지지 않고 항상 텍스트를 돌려준다."""
@@ -104,7 +104,7 @@ class WebChatLLM:
         except requests.exceptions.RequestException:
             return False
 
-    # ------------------------------------------------------------ 내부
+    # --- 내부 ---
 
     def _session(self, session_id: str) -> _Session:
         with self._lock:

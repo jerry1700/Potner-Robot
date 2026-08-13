@@ -29,7 +29,7 @@ from .status import MetricLevel, PlantStatus
 
 logger = logging.getLogger(__name__)
 
-# --- 판정 임계값 ---------------------------------------------------------------
+# --- 판정 임계값 ---
 # 스킨답서스 기준의 보수적인 범위. 종별 세분화는 profile 연동 후 과제.
 SOIL_DRY_BELOW = 30.0        # %
 SOIL_WET_ABOVE = 70.0        # %
@@ -85,7 +85,7 @@ _THRESHOLDS: dict[str, tuple[float, float]] = {
 }
 
 
-# --- 판정 (SensorSnapshot 원시값 → MetricLevel/PlantStatus) ----------------------
+# --- 판정 (SensorSnapshot 원시값 → MetricLevel/PlantStatus) ---
 
 
 def classify_metric(name: str, value: Optional[float]) -> MetricLevel:
@@ -178,11 +178,11 @@ def parse_snapshot(raw: Any) -> SensorSnapshot:
         try:
             values[field] = float(value)
         except (TypeError, ValueError):
-            logger.warning("센서 값 파싱 실패 — 해당 필드만 무시: %s=%r", key, value)
+            logger.warning(f"센서 값 파싱 실패 — 해당 필드만 무시: {key}={value!r}")
     return SensorSnapshot(**values)
 
 
-# --- 소스 어댑터 -----------------------------------------------------------------
+# --- 소스 어댑터 ---
 
 
 class CallbackSensorSource:
@@ -287,7 +287,7 @@ class SpringSensorSource:
         return f"spring:{self.url}"
 
 
-# --- Provider (실패 흡수 + 양쪽 스택 인터페이스) -----------------------------------
+# --- Provider (실패 흡수 + 양쪽 스택 인터페이스) ---
 
 
 class SensorDataProvider:
@@ -308,17 +308,17 @@ class SensorDataProvider:
         except Exception as exc:
             if self._last_good is not None:
                 logger.warning(
-                    "센서 조회 실패 (%s): %s — 마지막 성공값 재사용", self._describe(), exc
+                    f"센서 조회 실패 ({self._describe()}): {exc} — 마지막 성공값 재사용"
                 )
                 return self._last_good
-            logger.warning("센서 조회 실패 (%s): %s — 데이터 없음", self._describe(), exc)
+            logger.warning(f"센서 조회 실패 ({self._describe()}): {exc} — 데이터 없음")
             return None
 
         if snapshot is None:
-            logger.info("센서 조회 결과 없음 (%s)", self._describe())
+            logger.info(f"센서 조회 결과 없음 ({self._describe()})")
             return self._last_good
         self._last_good = snapshot
-        logger.info("센서 조회 성공 (%s): %s", self._describe(), snapshot.summary_dict())
+        logger.info(f"센서 조회 성공 ({self._describe()}): {snapshot.summary_dict()}")
         return snapshot
 
     def status(self) -> PlantStatus:

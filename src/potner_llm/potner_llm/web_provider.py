@@ -89,7 +89,7 @@ class WebProvider:
         self._last_weather: Optional[dict[str, Any]] = None
         self._last_news: Optional[dict[str, Any]] = None
 
-    # ------------------------------------------------------------ 날씨
+    # --- 날씨 ---
 
     def weather(self) -> dict[str, Any]:
         params = urllib.parse.urlencode(
@@ -106,7 +106,7 @@ class WebProvider:
         try:
             data = self._get_json(f"{OPEN_METEO_URL}?{params}")
         except Exception as exc:
-            logger.warning("날씨 조회 실패: %s", exc)
+            logger.warning(f"날씨 조회 실패: {exc}")
             if self._last_weather is not None:
                 return {**self._last_weather, "안내": "방금 조회가 안 돼서 조금 전에 확인한 값이에요."}
             return {"error": "weather_unavailable", "안내": "지금은 바깥 날씨를 확인할 수 없어요."}
@@ -136,10 +136,10 @@ class WebProvider:
             "일별예보": forecast,
         }
         self._last_weather = result
-        logger.info("날씨 조회 성공: 현재 %s", result["현재_바깥"])
+        logger.info(f"날씨 조회 성공: 현재 {result['현재_바깥']}")
         return result
 
-    # ------------------------------------------------------------ 식물 지식
+    # --- 식물 지식 ---
 
     def search_knowledge(self, query: str) -> dict[str, Any]:
         query = (query or "").strip()
@@ -160,7 +160,7 @@ class WebProvider:
         try:
             data = self._get_json(f"{WIKI_API_URL}?{params}")
         except Exception as exc:
-            logger.warning("지식 검색 실패 (%r): %s", query, exc)
+            logger.warning(f"지식 검색 실패 ({query!r}): {exc}")
             return {"error": "search_unavailable", "안내": "지금은 검색이 안 돼요. 잠시 뒤에 다시 물어봐 줘요."}
 
         pages = ((data.get("query") or {}).get("pages") or {}).values()
@@ -177,10 +177,10 @@ class WebProvider:
             )
         if not results:
             return {"출처": "wikipedia", "결과": [], "안내": f"'{query}' 관련 문서를 못 찾았어요."}
-        logger.info("지식 검색 성공 (%r): %d건", query, len(results))
+        logger.info(f"지식 검색 성공 ({query!r}): {len(results)}건")
         return {"출처": "wikipedia (일반 지식 — 내 상태가 아님)", "결과": results}
 
-    # ------------------------------------------------------------ 뉴스
+    # --- 뉴스 ---
 
     def news(self) -> dict[str, Any]:
         try:
@@ -191,7 +191,7 @@ class WebProvider:
             with urllib.request.urlopen(request, timeout=self.timeout_seconds) as response:
                 root = ET.fromstring(response.read())
         except Exception as exc:
-            logger.warning("뉴스 조회 실패: %s", exc)
+            logger.warning(f"뉴스 조회 실패: {exc}")
             if self._last_news is not None:
                 return {**self._last_news, "안내": "방금 조회가 안 돼서 조금 전에 확인한 소식이에요."}
             return {"error": "news_unavailable", "안내": "지금은 새 소식을 가져올 수 없어요."}
@@ -206,10 +206,10 @@ class WebProvider:
                 break
         result = {"출처": "google-news (세상 소식 — 내 이야기가 아님)", "헤드라인": headlines}
         self._last_news = result
-        logger.info("뉴스 조회 성공: %d건", len(headlines))
+        logger.info(f"뉴스 조회 성공: {len(headlines)}건")
         return result
 
-    # ------------------------------------------------------------ 내부
+    # --- 내부 ---
 
     def _get_json(self, url: str) -> dict[str, Any]:
         request = urllib.request.Request(

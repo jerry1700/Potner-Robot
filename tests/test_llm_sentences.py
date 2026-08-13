@@ -24,7 +24,7 @@ from sentences import (  # noqa: E402
 )
 
 
-# --- pop_sentences: 문장 경계 자르기 ------------------------------------------------
+# --- pop_sentences: 문장 경계 자르기 ---
 
 
 def test_pop_sentences_splits_completed_sentences():
@@ -79,7 +79,7 @@ def test_pop_sentences_streaming_accumulation():
     assert tail == "내일"
 
 
-# --- cut_first_chunk: 첫 조각 조기 절단 ----------------------------------------------
+# --- cut_first_chunk: 첫 조각 조기 절단 ---
 
 
 def test_cut_first_chunk_prefers_comma_over_space():
@@ -125,7 +125,7 @@ def test_first_chunk_chars_is_reasonable():
     assert FIRST_CHUNK_CHARS > 10
 
 
-# --- strip_markdown: TTS가 기호를 읽지 않게 ------------------------------------------
+# --- strip_markdown: TTS가 기호를 읽지 않게 ---
 
 
 def test_strip_markdown_removes_emphasis_and_headers():

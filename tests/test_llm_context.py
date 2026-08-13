@@ -66,7 +66,7 @@ def _tool_call_pair(question: str, answer: str) -> list[ChatMessage]:
     ]
 
 
-# ---------------------------------------------------------------- 토큰 근사
+# --- 토큰 근사 ---
 
 
 def test_estimate_tokens_counts_korean_conservatively():
@@ -84,7 +84,7 @@ def test_message_tokens_includes_tool_calls_payload():
     assert message_tokens(with_tools) > message_tokens(plain)
 
 
-# ---------------------------------------------------------------- trim_history
+# --- trim_history ---
 
 
 def test_trim_history_empty_and_unlimited():
@@ -140,7 +140,7 @@ def test_trim_history_leading_orphan_block_dropped_whole():
     assert [m.content for m in trimmed] == ["질문", "답"]
 
 
-# ---------------------------------------------------------------- ContextBuilder
+# --- ContextBuilder ---
 
 
 def test_build_puts_status_and_profile_in_system_prompt_only():
@@ -203,7 +203,7 @@ def test_build_token_budget_shrinks_history_but_keeps_latest():
     assert context.dropped_messages == 2
 
 
-# ---------------------------------------------------------------- DialogueService 연동
+# --- DialogueService 연동 ---
 
 
 def _make_service(tmp_path, **kwargs) -> DialogueService:

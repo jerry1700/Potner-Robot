@@ -44,7 +44,7 @@ def wav_bytes(samples: bytes = b"\x00\x01" * 100, *, streaming: bool = True) -> 
     return header + samples
 
 
-# ------------------------------------------------- wav 크기 필드 패치
+# --- wav 크기 필드 패치 ---
 
 
 def test_스트리밍_wav의_크기_필드를_실제_값으로_채운다():
@@ -87,7 +87,7 @@ def test_data_청크가_없어도_죽지_않는다():
     assert len(result) == len(header) + 8
 
 
-# ------------------------------------------------- 스풀 쓰기
+# --- 스풀 쓰기 ---
 
 
 def test_조각을_스풀에_쓴다(tmp_path):
@@ -139,7 +139,7 @@ def test_mp3로_쓰면_바이트를_건드리지_않는다(tmp_path):
     assert path.read_bytes() == raw
 
 
-# ------------------------------------------------- 스풀 정리
+# --- 스풀 정리 ---
 
 
 def test_오래된_조각을_지운다(tmp_path):
@@ -173,7 +173,7 @@ def test_다른_확장자_파일은_정리에서_건드리지_않는다(tmp_path
     assert (tmp_path / "keep-me.mp3").is_file()
 
 
-# ------------------------------------------------- 파일명 안전
+# --- 파일명 안전 ---
 
 
 @pytest.mark.parametrize(
@@ -199,7 +199,7 @@ def test_아주_긴_턴아이디를_자른다():
     assert len(_safe("x" * 500)) <= 64
 
 
-# ------------------------------------------------- 모드 선택
+# --- 모드 선택 ---
 
 
 @pytest.mark.parametrize("value", ["browser", "BROWSER", " browser "])
@@ -250,7 +250,7 @@ def test_NullSink는_아무것도_하지_않는다():
     assert sink.close() is None
 
 
-# ------------------------------------------------- 봉투 경계 (가장 중요)
+# --- 봉투 경계 (가장 중요) ---
 
 
 def test_서버가_만든_봉투를_노드가_읽는다():

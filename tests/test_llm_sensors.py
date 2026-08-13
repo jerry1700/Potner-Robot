@@ -33,7 +33,7 @@ from potner_llm.tools import TOOL_DEFINITIONS, ToolHub
 SETTINGS = ServiceSettings()
 
 
-# --- 판정: 다양한 센서 상태 → 라벨 -----------------------------------------------
+# --- 판정: 다양한 센서 상태 → 라벨 ---
 
 
 @pytest.mark.parametrize(
@@ -104,7 +104,7 @@ def test_build_plant_status_all_missing_says_no_data():
     assert "센서 데이터가 없어서" in status.summary_ko
 
 
-# --- 원시 데이터 정규화 -----------------------------------------------------------
+# --- 원시 데이터 정규화 ---
 
 
 def test_parse_snapshot_maps_aliases_and_strings():
@@ -129,7 +129,7 @@ def test_parse_snapshot_rejects_non_dict():
         parse_snapshot([1, 2, 3])
 
 
-# --- 소스 어댑터 -------------------------------------------------------------------
+# --- 소스 어댑터 ---
 
 
 def test_callback_source_accepts_dict_and_snapshot():
@@ -178,7 +178,7 @@ def test_http_source_fetches_json(monkeypatch):
     assert captured["timeout"] == 3.0
 
 
-# --- SpringSensorSource: 서버 응답(배열) → SensorSnapshot(평평) 재구성 -----------------
+# --- SpringSensorSource: 서버 응답(배열) → SensorSnapshot(평평) 재구성 ---
 
 
 def _fake_spring_response(monkeypatch, body, *, capture=None):
@@ -345,7 +345,7 @@ def test_create_sensor_provider_spring_missing_env_value_raises(monkeypatch):
     assert provider.snapshot() is None  # RuntimeError가 provider 안에서 흡수됨
 
 
-# --- provider: 실패 흡수 + 최신값 반영 ---------------------------------------------
+# --- provider: 실패 흡수 + 최신값 반영 ---
 
 
 def test_provider_returns_none_when_file_missing(tmp_path):
@@ -425,7 +425,7 @@ def test_create_sensor_provider_from_config(tmp_path):
         create_sensor_provider({"sensor": {"source": "carrier-pigeon"}})
 
 
-# --- 프롬프트 렌더링 ---------------------------------------------------------------
+# --- 프롬프트 렌더링 ---
 
 
 def test_prompt_renders_values_with_labels():
@@ -450,7 +450,7 @@ def test_prompt_without_sensors_still_says_no_data():
     assert "센서 데이터 없음" in prompt
 
 
-# --- ToolHub: get_sensor_data ------------------------------------------------------
+# --- ToolHub: get_sensor_data ---
 
 
 def _demo_status_for_tools():
@@ -514,7 +514,7 @@ def test_tool_hub_unknown_tool_returns_error_payload_not_exception(tmp_path):
     assert "get_sensor_data" in result["사용가능한_툴"]
 
 
-# --- 응답 파이프라인: 최신 센서가 LLM 프롬프트/응답에 반영되는지 ---------------------
+# --- 응답 파이프라인: 최신 센서가 LLM 프롬프트/응답에 반영되는지 ---
 
 
 class _CapturingClient:

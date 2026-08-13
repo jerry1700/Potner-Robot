@@ -49,7 +49,7 @@ def _provider(**overrides) -> WebProvider:
     return WebProvider(**kwargs)
 
 
-# ------------------------------------------------------------------ 날씨
+# --- 날씨 ---
 
 _WEATHER_BODY = {
     "current": {
@@ -107,7 +107,7 @@ def test_weather_failure_without_cache_returns_notice(monkeypatch):
     assert "안내" in result
 
 
-# ------------------------------------------------------------------ 식물 지식
+# --- 식물 지식 ---
 
 _WIKI_BODY = {
     "query": {
@@ -151,7 +151,7 @@ def test_search_knowledge_failure_returns_notice(monkeypatch):
     assert result["error"] == "search_unavailable"
 
 
-# ------------------------------------------------------------------ 뉴스
+# --- 뉴스 ---
 
 _RSS_BODY = (
     "<rss><channel>"
@@ -183,7 +183,7 @@ def test_news_failure_reuses_last_good(monkeypatch):
     assert "안내" in result
 
 
-# ------------------------------------------------------------------ 팩토리
+# --- 팩토리 ---
 
 def test_create_web_provider_disabled_returns_none():
     assert create_web_provider({}) is None
@@ -208,7 +208,7 @@ def test_create_web_provider_requires_coordinates():
         create_web_provider({"web": {"enabled": True, "latitude": "서울", "longitude": 127}})
 
 
-# ------------------------------------------------------------------ ToolHub 연동
+# --- ToolHub 연동 ---
 
 def _status_stub():
     raise AssertionError("웹 툴은 status를 조회하지 않는다")
@@ -243,7 +243,7 @@ def test_tool_hub_web_disabled_notice():
         assert result["error"] == "web_disabled"
 
 
-# ------------------------------------------------------- factcheck 외부 문맥 게이트
+# --- factcheck 외부 문맥 게이트 ---
 
 _SENSORS = SensorSnapshot(soil=50.0, temp=26.0, humidity=55.0, light=800.0, co2=None)
 

@@ -11,10 +11,10 @@ import os
 from dataclasses import dataclass, field
 from typing import Any
 
-# --- 입력 검증 ---------------------------------------------------------------
+# --- 입력 검증 ---
 MAX_QUESTION_LENGTH = 300
 
-# --- 응답 검증 ---------------------------------------------------------------
+# --- 응답 검증 ---
 MAX_RESPONSE_LENGTH = 120  # 시스템 프롬프트의 "120자 이내"와 같은 값
 MAX_RESPONSE_SENTENCES = 3
 # 폴백 응답: 응답 검증 실패 시 사용자에게 돌려줄 기본 문장
@@ -44,7 +44,7 @@ PROMPT_LEAK_MARKERS: tuple[str, ...] = (
     "저는 인공지능 모델",
 )
 
-# --- 센서 기본값: 데이터가 없을 때 프롬프트에 넣을 값 -------------------------
+# --- 센서 기본값: 데이터가 없을 때 프롬프트에 넣을 값 ---
 DEFAULT_SENSOR_VALUES: dict[str, Any] = {
     "soil": 50.0,       # %
     "temp": 24.0,       # °C
