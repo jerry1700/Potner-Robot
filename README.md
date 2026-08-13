@@ -7,6 +7,25 @@
 담당합니다. 다른 파트는 별도 브랜치에 있습니다 — `App-master`(Flutter),
 `Server-master`(Spring Boot), `Raspberry-master`(장치 스테이션).
 
+## 완성 모습 (2026-08-13 시연)
+
+| 표정 화면 — 7인치 LCD와 카메라 | 스테이션 도킹 |
+|:---:|:---:|
+| <img src="docs/media/demo-face.jpg" width="400" alt="정면 표정 화면"> | <img src="docs/media/demo-docking.jpg" width="400" alt="스테이션 도킹 장면"> |
+| **전체 모습 — 라이다 기둥과 화분** | **장치 스테이션 — 펌프·카메라·ArUco 마커** |
+| <img src="docs/media/demo-robot.jpg" width="400" alt="로봇 전체 모습"> | <img src="docs/media/demo-station.jpg" width="400" alt="장치 스테이션"> |
+
+<img src="docs/media/demo-scene.jpg" width="810" alt="시연장에서 스테이션으로 이동하는 모습">
+
+시연 영상 — 표정 화면과 마커 도킹:
+
+![표정 시연 영상](docs/media/demo-face.mp4)
+
+![도킹 시연 영상](docs/media/demo-docking.mp4)
+
+원본 사진·영상 전체(약 200MB)는 저장소 용량 정책상 커밋하지 않습니다
+(`.gitignore`의 `image/` 참고 — 공유는 팀 드라이브를 쓰세요).
+
 ## 시스템 구성
 
 ```
