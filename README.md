@@ -73,6 +73,10 @@ legacy/                   ROS 2 전환 이전 코드 (참고용, 실행되지 �
 | [`docs/JETSON_DISPLAY.md`](docs/JETSON_DISPLAY.md) | 젯슨 화면 세팅 (표정 표시 전 필독) |
 | [`docs/WIRING.md`](docs/WIRING.md) | 장치별 배선·핀·역할 |
 | [`docs/HANDOVER.md`](docs/HANDOVER.md) | 인수인계 — 진행 상황과 다음 작업 |
+| [`docs/LLM_CAPABILITIES.md`](docs/LLM_CAPABILITIES.md) | 대화 LLM이 답할 수 있는 것/없는 것 |
+| [`docs/LLM_QUESTION_EXAMPLES.md`](docs/LLM_QUESTION_EXAMPLES.md) | 시연·데모용 질문 카탈로그 |
+| [`docs/LLM_SENSOR_INTEGRATION_PLAN.md`](docs/LLM_SENSOR_INTEGRATION_PLAN.md) | LLM 센서 실측값 연동 계획·전환 절차 |
+| [`docs/SERVER_REQUEST_SENSOR_AUTH.md`](docs/SERVER_REQUEST_SENSOR_AUTH.md) | 서버 팀 요청 기록 — 장치용 센서 조회 인증 |
 
 **노드 파일과 계산 로직을 파일 단위로 분리**한 것이 설계의 핵심입니다.
 `kinematics.py` 같은 순수 모듈은 rclpy를 import 하지 않아서 젯슨 없이도
