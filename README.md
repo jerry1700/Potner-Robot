@@ -56,6 +56,9 @@ src/
 └── potner_firmware/      ESP32 펌웨어 (PlatformIO, ROS 패키지 아님)
 
 voice-chat-server/        음성 대화 웹서버 (담당: LLM 파트)
+plant-robot-chat/         노트북용 웹 챗 테스트 앱 (Next.js) — voice-chat-server의
+                          LLM_BACKEND=webchat 이 이 앱의 /api/chat 을 호출
+tools/                    수동 실행 도구 (회전 보정, 시연 조종기, Nav2 액션 목)
 tests/                    CI용 단위 테스트 (ROS 없이 순수 로직만)
 docs/                     명세·환경 문서 (아래 표 참고)
 legacy/                   ROS 2 전환 이전 코드 (참고용, 실행되지 않음)

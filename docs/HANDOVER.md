@@ -159,7 +159,7 @@ Robot-<종류>/<작업 내용>/<티켓번호>
 폐루프(`V`/`S`) 구동까지 전부 실기로 확인했습니다. 장치별 핀·배선은
 [`WIRING.md`](WIRING.md), ESP32 쪽 배선·프로토콜은
 [`potner_firmware/README.md`](../src/potner_firmware/README.md)에 정리돼
-있습니다. `tools/motor_bringup.py`/개루프(`D`) 경로는 이번엔 쓰지 않고,
+있습니다. `tools/motor_bringup.py`(개루프 벤치 도구, 지금은 삭제됨)/개루프(`D`) 경로는 이번엔 쓰지 않고,
 `Robot-develop`에 이미 있던 폐루프(`V`/`S`) 프로토콜로 바로 확인했습니다.
 
 - **엔코더는 3.3V 직결로 정상 동작 확인됨** — 레벨 시프터 불필요 (자세한 내용은
