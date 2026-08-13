@@ -7,8 +7,9 @@
   <maintainer email="notbad1700@gmail.com">E104</maintainer>
   <license>MIT</license>
 
-  <exec_depend>rclpy</exec_depend>
+  <!-- rclpy 없음 — 순수 파이썬 패키지 (README·CLAUDE.md 참고) -->
   <exec_depend>python3-yaml</exec_depend>
+  <exec_depend>python3-requests</exec_depend>
 
   <test_depend>ament_copyright</test_depend>
   <test_depend>ament_flake8</test_depend>
