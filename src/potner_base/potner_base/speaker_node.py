@@ -192,7 +192,7 @@ class Speaker(Node):
         else:
             self._speak(job.payload)
 
-    def _speak(self, text: str):
+    def _speak(self, text):
         """문장을 즉석 합성해 말합니다 (인사말). 선점 대상이 아닙니다."""
         argv = self._resolve_command(text)
         if argv is None:
@@ -269,7 +269,7 @@ class Speaker(Node):
             except subprocess.TimeoutExpired:
                 self.get_logger().error("재생기가 종료되지 않습니다")
 
-    def _resolve_command(self, text: str):
+    def _resolve_command(self, text):
         """미리 녹음한 파일이 있으면 재생, 없으면 합성 명령을 만듭니다."""
         wav = self._find_wav(text)
         template = self._wav_player if wav else self._tts_command
@@ -281,7 +281,7 @@ class Speaker(Node):
             self.get_logger().error(f"명령 조립 실패: {exc}")
             return None
 
-    def _find_wav(self, text: str):
+    def _find_wav(self, text):
         if not self._wav_dir:
             return None
         candidate = Path(self._wav_dir) / wav_filename(text)

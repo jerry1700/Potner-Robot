@@ -116,7 +116,7 @@ class FaceDisplay(Node):
 
     # --- 창 ---
 
-    def _open_window(self) -> bool:
+    def _open_window(self):
         if not os.environ.get("DISPLAY"):
             message = "DISPLAY 가 없어 창을 열지 않습니다."
             if self._save_path:
@@ -165,7 +165,7 @@ class FaceDisplay(Node):
 
     # --- 그리기 ---
 
-    def render(self) -> None:
+    def render(self):
         if not self._window_ready and not self._save_path:
             return
 
@@ -192,7 +192,7 @@ class FaceDisplay(Node):
                 self.get_logger().error(f"저장 실패: {self._save_path}")
                 self._save_path = ""  # 매 프레임 같은 에러를 쏟지 않게
 
-    def show(self) -> None:
+    def show(self):
         """그려둔 얼굴을 창에 올립니다. **매 주기 호출합니다.**
 
         표정이 바뀔 때만 imshow 하면, 창이 가려졌다 드러날 때(expose) 내용을
@@ -214,7 +214,7 @@ class FaceDisplay(Node):
                 self.get_logger().warn(f"전체화면 설정 실패: {exc}")
             self._fullscreen_pending = False
 
-    def _draw_eye(self, canvas, eye) -> None:
+    def _draw_eye(self, canvas, eye):
         center = to_pixels((eye.center_x, eye.center_y), self._view)
         radius = scale(eye.radius, self._view)
 
@@ -223,7 +223,7 @@ class FaceDisplay(Node):
         height = max(1, int(round(radius * eye.openness)))
         cv2.ellipse(canvas, center, (radius, height), 0, 0, 360, FACE_COLOR, -1)
 
-    def _draw_mouth(self, canvas, face) -> None:
+    def _draw_mouth(self, canvas, face):
         left, middle, right = (
             to_pixels(point, self._view) for point in mouth_points(face)
         )

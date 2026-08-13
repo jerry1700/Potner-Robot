@@ -148,7 +148,7 @@ class SpoolWriter:
                 key=lambda p: (p.stat().st_mtime, p.name),
             )
         except OSError as exc:
-            logger.debug("스풀 정리 건너뜀: %s", exc)
+            logger.debug(f"스풀 정리 건너뜀: {exc}")
             return 0
 
         removed = 0
@@ -223,11 +223,8 @@ class RosSpeakerSink:
         self._lock = threading.Lock()
 
         logger.info(
-            "오디오 싱크: 로봇 스피커 (topic=%s spool=%s ext=%s browser=%s)",
-            self.topic,
-            self.spool.spool_dir,
-            self.spool.extension,
-            self.also_browser,
+            f"오디오 싱크: 로봇 스피커 (topic={self.topic} spool={self.spool.spool_dir} "
+            f"ext={self.spool.extension} browser={self.also_browser})"
         )
 
     @property
@@ -252,7 +249,7 @@ class RosSpeakerSink:
         with self._lock:
             self._publisher.publish(message)
 
-        logger.debug("조각 발행 %s#%d -> %s (%dB)", turn_id, seq, path, len(audio))
+        logger.debug(f"조각 발행 {turn_id}#{seq} -> {path} ({len(audio)}B)")
         self.spool.prune()
 
     def cancel(self, reason: str = "") -> None:
@@ -261,13 +258,13 @@ class RosSpeakerSink:
         message.data = reason
         with self._lock:
             self._canceller.publish(message)
-        logger.info("재생 중단 요청 (%s)", reason or "이유 없음")
+        logger.info(f"재생 중단 요청 ({reason or '이유 없음'})")
 
     def close(self) -> None:
         try:
             self._node.destroy_node()
         except Exception as exc:  # 종료 경로에서 예외를 삼킵니다
-            logger.warning("싱크 노드 정리 실패: %s", exc)
+            logger.warning(f"싱크 노드 정리 실패: {exc}")
         if self._owns_context and self._rclpy.ok():
             self._rclpy.shutdown()
 
@@ -301,9 +298,8 @@ def resolve_mode(mode: Optional[str] = None) -> str:
     resolved = (mode or os.environ.get("AUDIO_SINK") or "browser").strip().lower()
     if resolved not in MODES:
         logger.warning(
-            "AUDIO_SINK=%r 를 모르겠습니다 (%s 중 하나) — browser 로 갑니다",
-            resolved,
-            "|".join(MODES),
+            f"AUDIO_SINK={resolved!r} 를 모르겠습니다 "
+            f"({'|'.join(MODES)} 중 하나) — browser 로 갑니다"
         )
         return "browser"
     return resolved
@@ -334,8 +330,7 @@ def build_audio_sink(
         )
     except Exception as exc:
         logger.error(
-            "로봇 스피커 싱크를 만들지 못했습니다 (%s) — 브라우저 재생으로 계속합니다. "
-            "로봇에서라면 `source install/setup.bash` 를 했는지 확인하세요.",
-            exc,
+            f"로봇 스피커 싱크를 만들지 못했습니다 ({exc}) — 브라우저 재생으로 "
+            "계속합니다. 로봇에서라면 `source install/setup.bash` 를 했는지 확인하세요."
         )
         return NullSink()

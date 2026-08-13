@@ -76,10 +76,8 @@ class SpeechClient:
         )
         text = str(resp.json().get("text") or "").strip()
         logger.info(
-            "STT ok %.0fms bytes=%d text=%r",
-            (time.monotonic() - started) * 1000,
-            len(audio),
-            text[:80],
+            f"STT ok {(time.monotonic() - started) * 1000:.0f}ms "
+            f"bytes={len(audio)} text={text[:80]!r}"
         )
         return text
 
@@ -103,11 +101,8 @@ class SpeechClient:
             },
         )
         logger.info(
-            "TTS ok %.0fms chars=%d %s=%dB",
-            (time.monotonic() - started) * 1000,
-            len(text),
-            resolved,
-            len(resp.content),
+            f"TTS ok {(time.monotonic() - started) * 1000:.0f}ms "
+            f"chars={len(text)} {resolved}={len(resp.content)}B"
         )
         return resp.content
 
@@ -123,7 +118,7 @@ class SpeechClient:
                 )
             except requests.RequestException as exc:
                 last_error = exc
-                logger.warning("음성 API 연결 오류 (attempt %d): %s", attempt + 1, exc)
+                logger.warning(f"음성 API 연결 오류 (attempt {attempt + 1}): {exc}")
             else:
                 if resp.status_code == 200:
                     return resp
@@ -134,10 +129,8 @@ class SpeechClient:
                 if resp.status_code not in {429, 500, 502, 503, 504}:
                     break
                 logger.warning(
-                    "음성 API HTTP %d (attempt %d): %s",
-                    resp.status_code,
-                    attempt + 1,
-                    resp.text[:200],
+                    f"음성 API HTTP {resp.status_code} "
+                    f"(attempt {attempt + 1}): {resp.text[:200]}"
                 )
             if attempt < self.max_retries:
                 time.sleep(self.retry_backoff_seconds * (2**attempt))

@@ -87,7 +87,7 @@ _FACES = {
 }
 
 
-def face_for(expression) -> Face:
+def face_for(expression: str) -> Face:
     """표정 이름에 맞는 얼굴을 돌려줍니다.
 
     **모르는 값이면 기본 표정을 돌려줍니다.** 서버가 표정을 늘릴 수 있으므로
@@ -138,7 +138,7 @@ def viewport_for(width: int, height: int) -> Viewport:
     return Viewport(x=(width - size) // 2, y=(height - size) // 2, size=size)
 
 
-def to_pixels(point, view: Viewport):
+def to_pixels(point: tuple[float, float], view: Viewport):
     """정규화 좌표(0~1)를 화면 픽셀로 바꿉니다."""
     x, y = point
     return (

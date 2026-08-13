@@ -8,6 +8,8 @@ ROS에 의존하지 않는 순수 파이썬 모듈입니다. 카메라 없이 CI
 드러나지 않았습니다.
 """
 
+import math
+
 
 def suggest_focal_length(
     current_focal: float, measured_distance: float, true_distance: float
@@ -64,8 +66,6 @@ def horizontal_fov_deg(focal_px: float, image_width: int) -> float:
     다르면 마커 크기를 잘못 넣었거나 계산이 틀린 것입니다. 실제로 이
     확인 덕분에 뒤집힌 공식을 찾았습니다.
     """
-    import math
-
     if focal_px <= 0.0:
         raise ValueError(f"초점거리가 0 이하입니다: {focal_px}")
     return math.degrees(2.0 * math.atan((image_width / 2.0) / focal_px))

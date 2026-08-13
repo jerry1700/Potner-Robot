@@ -79,14 +79,12 @@ class LocalSttClient:
                 self.device = f"{device}/{compute_type}"
                 self._model = model
                 logger.info(
-                    "로컬 whisper 로드 완료: %s (%s, %.1fs)",
-                    self.model_name,
-                    self.device,
-                    time.monotonic() - started,
+                    f"로컬 whisper 로드 완료: {self.model_name} "
+                    f"({self.device}, {time.monotonic() - started:.1f}s)"
                 )
                 return True
             except Exception as exc:  # noqa: BLE001 — 다음 디바이스로 폴백
-                logger.warning("whisper %s/%s 로드 실패: %s", device, compute_type, exc)
+                logger.warning(f"whisper {device}/{compute_type} 로드 실패: {exc}")
         return False
 
     def transcribe(self, audio: bytes, *, filename: str, content_type: str) -> str:
@@ -103,10 +101,7 @@ class LocalSttClient:
             )
             text = "".join(segment.text for segment in segments).strip()
         logger.info(
-            "STT(local %s) ok %.0fms bytes=%d text=%r",
-            self.device,
-            (time.monotonic() - started) * 1000,
-            len(audio),
-            text[:80],
+            f"STT(local {self.device}) ok {(time.monotonic() - started) * 1000:.0f}ms "
+            f"bytes={len(audio)} text={text[:80]!r}"
         )
         return text

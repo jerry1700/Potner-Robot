@@ -211,7 +211,7 @@ class MqttBridge(Node):
             return None
         return client
 
-    def _new_client(self, client_id: str):
+    def _new_client(self, client_id):
         """paho 1.x / 2.x 를 함께 지원합니다.
 
         2.x 는 CallbackAPIVersion 을 첫 인자로 요구합니다. 생략해도 지금은
@@ -373,9 +373,9 @@ class MqttBridge(Node):
 
     def _publish_command_result(
         self,
-        command_name: str,
-        request_id: str,
-        status: str,
+        command_name,
+        request_id,
+        status,
         *,
         error=None,
         code=None,
@@ -402,7 +402,7 @@ class MqttBridge(Node):
 
     # --- ROS ---
 
-    def _capture(self, sensor_type: str):
+    def _capture(self, sensor_type):
         """센서값을 종류별로 창에 누적하는 콜백을 만듭니다."""
 
         def callback(msg):
