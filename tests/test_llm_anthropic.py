@@ -28,7 +28,7 @@ from potner_llm.exceptions import (
 from potner_llm.tools import anthropic_tool_definitions
 
 
-# ------------------------------------------------------------------ SSE 대역
+# --- SSE 대역 ---
 
 
 def _sse(events: list[tuple[str, dict]]) -> list[str]:
@@ -125,7 +125,7 @@ class _FakeToolHub:
         return self._result
 
 
-# ------------------------------------------------------------------ complete
+# --- complete ---
 
 
 def test_complete_returns_streamed_text(monkeypatch):
@@ -161,7 +161,7 @@ def test_request_follows_gms_proxy_contract(monkeypatch):
     assert call["body"]["system"]  # system은 메시지가 아니라 톱레벨 파라미터
 
 
-# ------------------------------------------------------------ chat_with_tools
+# --- chat_with_tools ---
 
 
 def test_chat_with_tools_plain_answer(monkeypatch):
@@ -226,7 +226,7 @@ def test_chat_with_tools_raises_when_unavailable():
         )
 
 
-# ---------------------------------------------------------------- 오류 처리
+# --- 오류 처리 ---
 
 
 def test_retries_http_500_then_succeeds(monkeypatch):
@@ -294,7 +294,7 @@ def test_sse_error_event_raises_api_error(monkeypatch):
         _make_client().complete("안녕")
 
 
-# ------------------------------------------------------------ 형식 변환
+# --- 형식 변환 ---
 
 
 def test_to_anthropic_messages_converts_tool_history():
@@ -346,7 +346,7 @@ def test_anthropic_tool_definitions_shape():
         assert d["input_schema"]["type"] == "object"
 
 
-# ------------------------------------------------------------ 팩토리
+# --- 팩토리 ---
 
 
 def test_create_llm_client_anthropic_defaults(monkeypatch):

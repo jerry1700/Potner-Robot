@@ -100,7 +100,7 @@ def snapshot_from_status(status: PlantStatus) -> SensorSnapshot:
     )
 
 
-# --- 수치 주장 추출 -----------------------------------------------------------
+# --- 수치 주장 추출 ---
 
 # 단위가 붙은 숫자만 주장으로 본다. 단위 없는 숫자("3문장", "이틀")는 센서와
 # 무관한 경우가 대부분이라 검사하지 않는다 (오탐 방지).
@@ -148,12 +148,12 @@ _EXTERNAL_CONTEXT = re.compile(
 )
 _EXTERNAL_CONTEXT_WINDOW = 12
 
-# --- 상태 주장 (토양 수분) -----------------------------------------------------
+# --- 상태 주장 (토양 수분) ---
 
 _DRY_CLAIM = re.compile(r"목말|목이 말|건조|말랐|메말|바싹|물이 부족|물이 필요")
 _WET_CLAIM = re.compile(r"촉촉|축축|흠뻑|물이 충분|물은 충분")
 
-# --- 지어낸 이벤트 (급수) ------------------------------------------------------
+# --- 지어낸 이벤트 (급수) ---
 
 # 급수 기록이 없을 때 "언제 물을 줬다/마셨다"는 구체적 회상은 날조로 본다.
 # 기록이 있을 때의 시점 불일치까지는 따지지 않는다 (자연어 시제 해석은 오탐이 많다).
@@ -188,12 +188,10 @@ def verify_response(
 
     result = FactCheckResult(ok=not issues, issues=tuple(issues), claims_checked=checked)
     if result.ok:
-        logger.info("사실성 검증 통과 (대조한 주장 %d개)", checked)
+        logger.info(f"사실성 검증 통과 (대조한 주장 {checked}개)")
     else:
         logger.warning(
-            "사실성 검증 실패 (%s) reply[:80]=%r",
-            ", ".join(result.issue_codes),
-            body[:80],
+            f"사실성 검증 실패 ({', '.join(result.issue_codes)}) reply[:80]={body[:80]!r}"
         )
     return result
 
@@ -215,7 +213,7 @@ def next_action(
     return ACTION_FALLBACK
 
 
-# --- 내부: 수치 주장 대조 ------------------------------------------------------
+# --- 내부: 수치 주장 대조 ---
 
 
 def _check_numeric_claims(
@@ -306,7 +304,7 @@ def _within_tolerance(metric: str, claimed: float, actual: float, policy: FactCh
     return True
 
 
-# --- 내부: 상태 주장 대조 ------------------------------------------------------
+# --- 내부: 상태 주장 대조 ---
 
 
 def _check_soil_state_claims(
@@ -359,7 +357,7 @@ def _external_state_context(body: str, match: "re.Match[str]") -> bool:
     return bool(re.search(r"날씨|바깥|공기|대기|내일|예보", segment))
 
 
-# --- 내부: 지어낸 이벤트 대조 ---------------------------------------------------
+# --- 내부: 지어낸 이벤트 대조 ---
 
 
 def _check_watering_event_claims(

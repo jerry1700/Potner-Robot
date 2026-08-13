@@ -30,7 +30,7 @@ from potner_llm.validator import check_response, validate_question
 SETTINGS = ServiceSettings()
 
 
-# --- 스텁: LlmClient 대역 ------------------------------------------------------
+# --- 스텁: LlmClient 대역 ---
 
 
 class _StubClient:
@@ -56,7 +56,7 @@ def _service(reply=None, error=None, **kwargs) -> PlantChatService:
     return PlantChatService(client=_StubClient(reply=reply, error=error), **kwargs)
 
 
-# --- 1. 입력 검증 --------------------------------------------------------------
+# --- 1. 입력 검증 ---
 
 
 def test_validate_question_strips_and_passes():
@@ -81,7 +81,7 @@ def test_validate_question_rejects(text, reason):
     assert exc_info.value.message_ko  # 사용자 안내 문구가 있어야 한다
 
 
-# --- 4. 시스템 프롬프트 --------------------------------------------------------
+# --- 4. 시스템 프롬프트 ---
 
 
 def test_system_prompt_embeds_profile_sensors_and_rules():
@@ -100,7 +100,7 @@ def test_system_prompt_handles_missing_sensors():
     assert "센서 데이터 없음" in prompt
 
 
-# --- 6. 응답 검증 --------------------------------------------------------------
+# --- 6. 응답 검증 ---
 
 
 @pytest.mark.parametrize(
@@ -123,7 +123,7 @@ def test_check_response_accepts_normal_korean():
     assert check_response("오늘은 물을 조금만 줘도 괜찮아!", SETTINGS) is None
 
 
-# --- 7. 후처리 -----------------------------------------------------------------
+# --- 7. 후처리 ---
 
 
 def test_postprocess_collapses_whitespace_and_newlines():
@@ -148,7 +148,7 @@ def test_postprocess_strips_emoji_and_markdown():
     assert "오늘은 기분이 좋아!" in out
 
 
-# --- 서비스 전체 흐름 (스펙 12번 시나리오) ---------------------------------------
+# --- 서비스 전체 흐름 (스펙 12번 시나리오) ---
 
 
 def test_answer_normal_question():
@@ -248,7 +248,7 @@ def test_answer_survives_provider_exceptions():
     assert result["success"] is True  # 기본 프로필/센서로 계속 진행
 
 
-# --- 사실성 검증 배선: 통과한 답변만 사용자에게 전달된다 --------------------------
+# --- 사실성 검증 배선: 통과한 답변만 사용자에게 전달된다 ---
 
 
 def test_answer_factcheck_rejects_reply_contradicting_sensors():
@@ -286,7 +286,7 @@ def test_answer_factcheck_retries_then_delivers_corrected_reply():
     assert "fallback" not in result
 
 
-# --- 클라이언트: timeout이 LlmTimeoutError로 매핑되는지 ---------------------------
+# --- 클라이언트: timeout이 LlmTimeoutError로 매핑되는지 ---
 
 
 def test_client_raises_timeout_error_after_retries(monkeypatch):

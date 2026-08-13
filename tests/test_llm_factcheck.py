@@ -26,7 +26,7 @@ from potner_llm.status import MetricLevel, PlantStatus
 SENSORS = SensorSnapshot(soil=42.0, temp=26.1, humidity=55.0, light=800.0, co2=650.0)
 
 
-# --- 정상 시나리오: 데이터와 일치하는 답변은 통과 --------------------------------
+# --- 정상 시나리오: 데이터와 일치하는 답변은 통과 ---
 
 
 def test_accepts_answer_matching_sensor_values():
@@ -61,7 +61,7 @@ def test_accepts_empty_text():
     assert verify_response(None, SENSORS).ok is True
 
 
-# --- 허위 응답: 센서와 상충되는 수치는 통과하지 못한다 ----------------------------
+# --- 허위 응답: 센서와 상충되는 수치는 통과하지 못한다 ---
 
 
 def test_rejects_soil_value_contradicting_sensor():
@@ -124,7 +124,7 @@ def test_ambiguous_percent_fails_if_it_matches_nothing():
     assert result.ok is False
 
 
-# --- 데이터 누락: 없는 값을 말하면 날조로 잡는다 ---------------------------------
+# --- 데이터 누락: 없는 값을 말하면 날조로 잡는다 ---
 
 
 def test_rejects_numeric_claim_when_sensor_missing():
@@ -152,7 +152,7 @@ def test_state_claims_are_not_checked_without_soil_data():
     assert result.ok is True
 
 
-# --- 센서 이상(극단값)과 상태 표현의 상충 ---------------------------------------
+# --- 센서 이상(극단값)과 상태 표현의 상충 ---
 
 
 def test_rejects_wet_claim_when_soil_is_very_dry():
@@ -175,7 +175,7 @@ def test_accepts_state_claim_matching_extreme_sensor():
     assert result.ok is True
 
 
-# --- 지어낸 이벤트: 급수 기록이 없는데 급수를 회상 --------------------------------
+# --- 지어낸 이벤트: 급수 기록이 없는데 급수를 회상 ---
 
 
 def test_rejects_watering_memory_without_record():
@@ -196,7 +196,7 @@ def test_watering_check_skipped_without_profile():
     assert result.ok is True
 
 
-# --- 허용 오차 정책 조정 --------------------------------------------------------
+# --- 허용 오차 정책 조정 ---
 
 
 def test_policy_tolerance_is_configurable():
@@ -209,7 +209,7 @@ def test_policy_tolerance_is_configurable():
     assert result.ok is True
 
 
-# --- 재시도/폴백 판정 -----------------------------------------------------------
+# --- 재시도/폴백 판정 ---
 
 
 def test_next_action_pass_when_ok():
@@ -229,7 +229,7 @@ def test_next_action_respects_policy_max_retries():
     assert next_action(failed, attempt=0, policy=policy) == ACTION_FALLBACK
 
 
-# --- 로깅 -----------------------------------------------------------------------
+# --- 로깅 ---
 
 
 def test_failure_is_logged_with_reasons(caplog):
@@ -245,7 +245,7 @@ def test_success_is_logged(caplog):
     assert any("사실성 검증 통과" in rec.getMessage() for rec in caplog.records)
 
 
-# --- 복합 시나리오: 여러 위반이 모두 사유로 남는다 --------------------------------
+# --- 복합 시나리오: 여러 위반이 모두 사유로 남는다 ---
 
 
 def test_multiple_issues_are_all_reported():
@@ -260,7 +260,7 @@ def test_multiple_issues_are_all_reported():
     assert "sensor_mismatch:soil" in codes
 
 
-# --- DialogueService(chat_once) 배선: 음성/CLI 경로에서도 검증이 동작한다 ---------
+# --- DialogueService(chat_once) 배선: 음성/CLI 경로에서도 검증이 동작한다 ---
 
 
 def _plant_status(temp: float = 25.0) -> PlantStatus:

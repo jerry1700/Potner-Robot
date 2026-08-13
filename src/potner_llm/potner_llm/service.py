@@ -83,7 +83,7 @@ class PlantChatService:
         try:
             cleaned_question = validate_question(question, self.settings)
         except InvalidQuestionError as exc:
-            logger.info("질문 검증 실패 (%s): %r", exc.reason, question)
+            logger.info(f"질문 검증 실패 ({exc.reason}): {question!r}")
             return self._result(
                 success=False,
                 message=exc.message_ko,
@@ -95,7 +95,7 @@ class PlantChatService:
 
         # 2~5) 프롬프트 생성 + LLM 호출
         system_prompt = build_system_prompt(profile, sensors, self.settings)
-        logger.info("LLM 요청 시작 model=%s question=%r", self.client.model, cleaned_question)
+        logger.info(f"LLM 요청 시작 model={self.client.model} question={cleaned_question!r}")
 
         fact = None
         for attempt in range(DEFAULT_POLICY.max_retries + 1):
@@ -118,7 +118,7 @@ class PlantChatService:
 
         if raw_reply is None:
             # 클라이언트 비활성(키 없음/mock) — LLM 없이 기본 응답으로 처리
-            logger.warning("LLM 사용 불가 상태 — 폴백 응답 반환 (%.0fms)", elapsed_ms)
+            logger.warning(f"LLM 사용 불가 상태 — 폴백 응답 반환 ({elapsed_ms:.0f}ms)")
             return self._result(
                 success=False,
                 message=self.settings.fallback_message,
@@ -133,10 +133,8 @@ class PlantChatService:
         invalid_reason = check_response(raw_reply, self.settings)
         if invalid_reason is not None:
             logger.warning(
-                "LLM 응답 검증 실패 (%s) — 폴백 응답 반환 (%.0fms) reply[:80]=%r",
-                invalid_reason,
-                elapsed_ms,
-                raw_reply[:80] if raw_reply else raw_reply,
+                f"LLM 응답 검증 실패 ({invalid_reason}) — 폴백 응답 반환 ({elapsed_ms:.0f}ms) "
+                f"reply[:80]={(raw_reply[:80] if raw_reply else raw_reply)!r}"
             )
             return self._result(
                 success=True,
@@ -151,9 +149,8 @@ class PlantChatService:
         # 6.5) 사실성 검증 최종 판정 — 재생성까지 실패면 폴백 (무응답 금지 불변식 유지)
         if fact is not None and not fact.ok:
             logger.warning(
-                "사실성 검증 최종 실패 — 폴백 응답 반환 (%.0fms) 사유=%s",
-                elapsed_ms,
-                ", ".join(fact.issue_codes),
+                f"사실성 검증 최종 실패 — 폴백 응답 반환 ({elapsed_ms:.0f}ms) "
+                f"사유={', '.join(fact.issue_codes)}"
             )
             return self._result(
                 success=True,
@@ -179,7 +176,7 @@ class PlantChatService:
                 fallback=True,
             ).to_dict()
 
-        logger.info("LLM 응답 완료 model=%s %.0fms len=%d", self.client.model, elapsed_ms, len(message))
+        logger.info(f"LLM 응답 완료 model={self.client.model} {elapsed_ms:.0f}ms len={len(message)}")
         return self._result(
             success=True,
             message=message,
@@ -188,7 +185,7 @@ class PlantChatService:
             timestamp=timestamp,
         ).to_dict()
 
-    # --- 내부 도우미 ---------------------------------------------------------
+    # --- 내부 도우미 ---
 
     def _safe_profile(self) -> PlantProfile:
         try:
@@ -215,7 +212,7 @@ class PlantChatService:
         elapsed_ms = (time.monotonic() - started) * 1000
         for exc_type, code, message_ko in _ERROR_MESSAGES:
             if isinstance(exc, exc_type):
-                logger.error("LLM 호출 실패 (%s, %.0fms): %s", code, elapsed_ms, exc)
+                logger.error(f"LLM 호출 실패 ({code}, {elapsed_ms:.0f}ms): {exc}")
                 return self._result(
                     success=False,
                     message=message_ko,
@@ -225,7 +222,7 @@ class PlantChatService:
                     error_code=code,
                     fallback=True,
                 )
-        logger.error("LLM 호출 실패 (api_error, %.0fms): %s", elapsed_ms, exc)
+        logger.error(f"LLM 호출 실패 (api_error, {elapsed_ms:.0f}ms): {exc}")
         return self._result(
             success=False,
             message=self.settings.fallback_message,

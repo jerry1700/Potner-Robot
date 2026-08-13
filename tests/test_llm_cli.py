@@ -17,7 +17,7 @@ from potner_llm import cli
 from potner_llm.sensor_provider import FileSensorSource, SensorDataProvider
 
 
-# --- _load_env_file: .env를 직접 파싱해 os.environ에 싣는다 -----------------------
+# --- _load_env_file: .env를 직접 파싱해 os.environ에 싣는다 ---
 
 
 def test_load_env_file_sets_new_vars(tmp_path, monkeypatch):
@@ -88,7 +88,7 @@ def test_load_env_file_keeps_quotes_and_inline_comments(tmp_path, monkeypatch):
     monkeypatch.delenv("POTNER_CLI_QUOTED", raising=False)
 
 
-# --- _load_config: YAML 파싱 ---------------------------------------------------
+# --- _load_config: YAML 파싱 ---
 
 
 def test_load_config_parses_yaml(tmp_path):
@@ -107,7 +107,7 @@ def test_load_config_empty_file_returns_empty_dict(tmp_path):
     assert cli._load_config(path) == {}
 
 
-# --- _build_sensor_provider: sensor 섹션 → provider, 없으면 파일 폴백 --------------
+# --- _build_sensor_provider: sensor 섹션 → provider, 없으면 파일 폴백 ---
 
 
 def test_build_sensor_provider_empty_config_falls_back_to_package_file():
@@ -145,7 +145,7 @@ def test_build_sensor_provider_file_source_reads_given_path(tmp_path):
     assert snapshot.light == 800.0
 
 
-# --- _build_parser: 기본값과 옵션 파싱 -------------------------------------------
+# --- _build_parser: 기본값과 옵션 파싱 ---
 
 
 def test_build_parser_defaults_point_under_repo():

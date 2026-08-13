@@ -37,7 +37,7 @@ from webchat_llm import (  # noqa: E402
 BASE_URL = "http://testserver:3000"
 
 
-# --- 스텁: requests 대역 --------------------------------------------------------
+# --- 스텁: requests 대역 ---
 
 
 class _FakeResponse:
@@ -140,7 +140,7 @@ def _llm() -> WebChatLLM:
     return WebChatLLM(base_url=BASE_URL)
 
 
-# --- 1. SSE 스트림 파싱 ---------------------------------------------------------
+# --- 1. SSE 스트림 파싱 ---
 
 
 def test_chat_stream_yields_text_deltas_in_order(fake_net):
@@ -177,7 +177,7 @@ def test_unknown_events_and_bad_json_are_ignored(fake_net):
     assert _llm().chat_once("s1", "안녕") == "진짜 응답"
 
 
-# --- 2. 요청 규약: Origin 금지 · 페이로드 형태 ------------------------------------
+# --- 2. 요청 규약: Origin 금지 · 페이로드 형태 ---
 
 
 def test_no_origin_header_is_sent(fake_net):
@@ -208,7 +208,7 @@ def test_base_url_trailing_slash_is_stripped(fake_net):
     assert url == f"{BASE_URL}/api/chat"
 
 
-# --- 3. 히스토리 관리 ------------------------------------------------------------
+# --- 3. 히스토리 관리 ---
 
 
 def test_history_records_user_and_assistant_after_turn(fake_net):
@@ -252,7 +252,7 @@ def test_sessions_are_isolated(fake_net):
     assert first["json"]["conversationId"] != second["json"]["conversationId"]
 
 
-# --- 4. 요약(summarize) ----------------------------------------------------------
+# --- 4. 요약(summarize) ---
 
 
 def _turns(n: int) -> list[dict[str, str]]:
@@ -326,7 +326,7 @@ def test_empty_summary_also_keeps_history(fake_net):
     assert len(chat_kwargs["json"]["history"]) == MAX_HISTORY_MESSAGES + 2
 
 
-# --- 스트림 응답 정리 (커넥션 누수 방지) ----------------------------------------------
+# --- 스트림 응답 정리 (커넥션 누수 방지) ---
 
 
 def test_stream_response_closed_after_normal_exhaustion(fake_net):
@@ -369,7 +369,7 @@ def test_stream_response_closed_on_non_200(fake_net):
     assert response.closed  # 응답은 닫혀 있어야 한다
 
 
-# --- 5. 세션 종료 · 헬스체크 -------------------------------------------------------
+# --- 5. 세션 종료 · 헬스체크 ---
 
 
 def test_end_session_clears_state(fake_net):
@@ -396,7 +396,7 @@ def test_healthy_false_when_requests_raises(fake_net):
     assert _llm().healthy() is False
 
 
-# --- 6. 오류 회복 탄력성 -----------------------------------------------------------
+# --- 6. 오류 회복 탄력성 ---
 
 
 def test_error_sse_event_yields_llm_error_fallback(fake_net):

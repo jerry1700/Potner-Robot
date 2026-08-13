@@ -577,7 +577,7 @@ def _error(status: int, message: str) -> JSONResponse:
     return JSONResponse({"success": False, "message": message}, status_code=status)
 
 
-# ------------------------------------------------- 문장 파이프라이닝 (스트리밍 TTS)
+# --- 문장 파이프라이닝 (스트리밍 TTS) ---
 # 문장 자르기 규칙(pop_sentences/cut_first_chunk/strip_markdown)은 sentences.py에
 # 있다 — 이 파일은 import 시점 부작용(API 키·필러 합성 스레드) 때문에 테스트가
 # import할 수 없어서, 순수 로직은 저쪽에 두고 여기서는 배선만 한다.

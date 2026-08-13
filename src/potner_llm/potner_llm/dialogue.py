@@ -130,8 +130,7 @@ class DialogueService:
                     fact = verify_response(text, snapshot_from_status(status))
                     if not fact.ok:
                         logger.warning(
-                            "일기 사실성 검증 실패 — 템플릿 폴백 (%s)",
-                            ", ".join(fact.issue_codes),
+                            f"일기 사실성 검증 실패 — 템플릿 폴백 ({', '.join(fact.issue_codes)})"
                         )
                         text = None
             except RuntimeError:
@@ -168,8 +167,8 @@ class DialogueService:
                         break
                 if fact is not None and not fact.ok:
                     logger.warning(
-                        "chat_once 사실성 검증 실패 — 상태 기반 폴백으로 대체 (%s)",
-                        ", ".join(fact.issue_codes),
+                        f"chat_once 사실성 검증 실패 — 상태 기반 폴백으로 대체 "
+                        f"({', '.join(fact.issue_codes)})"
                     )
                     reply = f"음, 방금은 말이 좀 꼬였나 봐. {self._grounded_reply(status)}"
                 self._remember_turn(user_message, ChatMessage(role="assistant", content=reply))

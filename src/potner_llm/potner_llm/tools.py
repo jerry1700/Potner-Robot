@@ -132,9 +132,9 @@ class ToolHub:
         try:
             result = self._dispatch(name, arguments)
         except Exception as exc:
-            logger.exception("툴 실행 실패: %s(%r)", name, arguments)
+            logger.exception(f"툴 실행 실패: {name}({arguments!r})")
             return {"error": f"tool_failed:{name}", "안내": f"{name} 조회에 실패했어요: {exc}"}
-        logger.info("툴 실행 성공: %s", name)
+        logger.info(f"툴 실행 성공: {name}")
         return result
 
     def _dispatch(self, name: str, arguments: dict[str, Any]) -> Any:
@@ -158,7 +158,7 @@ class ToolHub:
                 return {"error": "web_disabled", "안내": "뉴스 조회 기능이 꺼져 있어요."}
             return self._web.news()
         # LLM이 없는 툴 이름을 지어내는 경우가 실제로 있다 — 죽이지 말고 알려준다.
-        logger.warning("알 수 없는 툴 호출: %s", name)
+        logger.warning(f"알 수 없는 툴 호출: {name}")
         return {"error": f"unknown_tool:{name}", "사용가능한_툴": [t["function"]["name"] for t in TOOL_DEFINITIONS]}
 
     def _sensor_data(self) -> dict[str, Any]:

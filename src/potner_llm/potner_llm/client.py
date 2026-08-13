@@ -175,17 +175,13 @@ class LlmClient:
                 if attempt < self.max_retries and exc.code in RETRYABLE_HTTP_STATUS:
                     delay = self.retry_backoff_seconds * (2**attempt)
                     logger.warning(
-                        "LLM HTTP %d, retrying in %.1fs (attempt %d/%d): %s",
-                        exc.code,
-                        delay,
-                        attempt + 1,
-                        self.max_retries,
-                        detail,
+                        f"LLM HTTP {exc.code}, retrying in {delay:.1f}s "
+                        f"(attempt {attempt + 1}/{self.max_retries}): {detail}"
                     )
                     time.sleep(delay)
                     attempt += 1
                     continue
-                logger.error("LLM HTTP %d (giving up): %s", exc.code, detail)
+                logger.error(f"LLM HTTP {exc.code} (giving up): {detail}")
                 if exc.code in {401, 403}:
                     raise LlmAuthError(f"LLM auth failed (HTTP {exc.code}): {detail}") from exc
                 if exc.code == 429:
@@ -196,18 +192,15 @@ class LlmClient:
                 is_timeout = isinstance(exc.reason, (socket.timeout, TimeoutError))
                 if attempt < self.max_retries:
                     delay = self.retry_backoff_seconds * (2**attempt)
+                    kind = "timeout" if is_timeout else "connection error"
                     logger.warning(
-                        "LLM %s, retrying in %.1fs (attempt %d/%d): %s",
-                        "timeout" if is_timeout else "connection error",
-                        delay,
-                        attempt + 1,
-                        self.max_retries,
-                        exc.reason,
+                        f"LLM {kind}, retrying in {delay:.1f}s "
+                        f"(attempt {attempt + 1}/{self.max_retries}): {exc.reason}"
                     )
                     time.sleep(delay)
                     attempt += 1
                     continue
-                logger.error("LLM connection error (giving up): %s", exc.reason)
+                logger.error(f"LLM connection error (giving up): {exc.reason}")
                 if is_timeout:
                     raise LlmTimeoutError(
                         f"LLM timeout after {self.request_timeout_seconds}s"
@@ -218,10 +211,8 @@ class LlmClient:
                 if attempt < self.max_retries:
                     delay = self.retry_backoff_seconds * (2**attempt)
                     logger.warning(
-                        "LLM read timeout, retrying in %.1fs (attempt %d/%d)",
-                        delay,
-                        attempt + 1,
-                        self.max_retries,
+                        f"LLM read timeout, retrying in {delay:.1f}s "
+                        f"(attempt {attempt + 1}/{self.max_retries})"
                     )
                     time.sleep(delay)
                     attempt += 1
@@ -240,26 +231,21 @@ class LlmClient:
                 if attempt < self.max_retries:
                     delay = self.retry_backoff_seconds * (2**attempt)
                     logger.warning(
-                        "LLM 응답 JSON 파싱 실패, %.1fs 후 재시도 (attempt %d/%d): %s | body[:200]=%r",
-                        delay,
-                        attempt + 1,
-                        self.max_retries,
-                        exc,
-                        raw_text[:200],
+                        f"LLM 응답 JSON 파싱 실패, {delay:.1f}s 후 재시도 "
+                        f"(attempt {attempt + 1}/{self.max_retries}): {exc} "
+                        f"| body[:200]={raw_text[:200]!r}"
                     )
                     time.sleep(delay)
                     attempt += 1
                     continue
                 logger.error(
-                    "LLM 응답 JSON 파싱 실패 (giving up): %s | body[:200]=%r", exc, raw_text[:200]
+                    f"LLM 응답 JSON 파싱 실패 (giving up): {exc} | body[:200]={raw_text[:200]!r}"
                 )
                 raise LlmResponseParseError(f"LLM response JSON parse error: {exc}") from exc
 
             usage = data.get("usage")
             if usage:
-                logger.info(
-                    "LLM call ok model=%s usage=%s (attempt %d)", self.model, usage, attempt + 1
-                )
+                logger.info(f"LLM call ok model={self.model} usage={usage} (attempt {attempt + 1})")
             return data
 
 
@@ -369,7 +355,7 @@ class AnthropicLlmClient(LlmClient):
                 if attempt < self.max_retries:
                     attempt = self._wait_retry(attempt, f"connection error: {exc}")
                     continue
-                logger.error("LLM(Anthropic) connection error (giving up): %s", exc)
+                logger.error(f"LLM(Anthropic) connection error (giving up): {exc}")
                 raise LlmConnectionError(f"LLM connection error: {exc}") from exc
 
             try:
@@ -378,7 +364,7 @@ class AnthropicLlmClient(LlmClient):
                     if resp.status_code in RETRYABLE_HTTP_STATUS and attempt < self.max_retries:
                         attempt = self._wait_retry(attempt, f"HTTP {resp.status_code}")
                         continue
-                    logger.error("LLM(Anthropic) HTTP %d (giving up): %s", resp.status_code, detail)
+                    logger.error(f"LLM(Anthropic) HTTP {resp.status_code} (giving up): {detail}")
                     if resp.status_code in {401, 403}:
                         raise LlmAuthError(
                             f"LLM auth failed (HTTP {resp.status_code}): {detail}"
@@ -400,7 +386,7 @@ class AnthropicLlmClient(LlmClient):
                 if attempt < self.max_retries:
                     attempt = self._wait_retry(attempt, f"stream error: {exc}")
                     continue
-                logger.error("LLM(Anthropic) stream error (giving up): %s", exc)
+                logger.error(f"LLM(Anthropic) stream error (giving up): {exc}")
                 raise LlmConnectionError(f"LLM stream error: {exc}") from exc
             finally:
                 resp.close()
@@ -408,11 +394,8 @@ class AnthropicLlmClient(LlmClient):
     def _wait_retry(self, attempt: int, reason: str) -> int:
         delay = self.retry_backoff_seconds * (2**attempt)
         logger.warning(
-            "LLM(Anthropic) %s, %.1fs 후 재시도 (attempt %d/%d)",
-            reason,
-            delay,
-            attempt + 1,
-            self.max_retries,
+            f"LLM(Anthropic) {reason}, {delay:.1f}s 후 재시도 "
+            f"(attempt {attempt + 1}/{self.max_retries})"
         )
         time.sleep(delay)
         return attempt + 1
@@ -499,7 +482,7 @@ class AnthropicLlmClient(LlmClient):
                 break
 
         if usage:
-            logger.info("LLM call ok model=%s usage=%s", self.model, usage)
+            logger.info(f"LLM call ok model={self.model} usage={usage}")
         return {
             "text": "".join(text_parts),
             "content": content,
