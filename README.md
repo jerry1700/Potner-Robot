@@ -4,7 +4,7 @@
 > SSAFY 15기 공통PJT · E104 친구사이
 
 <p align="center">
-  <img src="docs/media/demo-face-cut.png" width="300" alt="포트너 — 반려식물 로봇">
+  <img src="docs/media/potner.png" width="320" alt="포트너 — 반려식물 로봇">
 </p>
 
 이 저장소의 `Robot-master` 브랜치는 **로봇 본체(Jetson Orin Nano)** 소프트웨어를
@@ -32,9 +32,9 @@
 
 | 전체 모습 — 라이다 기둥과 화분 | 스테이션 도킹 |
 |:---:|:---:|
-| <img src="docs/media/demo-robot-cut.png" width="280" alt="로봇 전체 모습"> | <img src="docs/media/demo-docking.jpg" width="400" alt="스테이션 도킹 장면"> |
+| <img src="docs/media/demo-robot-cut.png" width="280" alt="로봇 전체 모습"> | <img src="docs/media/docking.png" width="360" alt="스테이션 도킹 장면"> |
 | **장치 스테이션 — 펌프·카메라·ArUco 마커** | **시연장 전경** |
-| <img src="docs/media/demo-station.jpg" width="400" alt="장치 스테이션"> | <img src="docs/media/demo-scene.jpg" width="400" alt="시연장에서 스테이션으로 이동하는 모습"> |
+| <img src="docs/media/station.png" width="360" alt="장치 스테이션"> | <img src="docs/media/demo-scene.jpg" width="400" alt="시연장에서 스테이션으로 이동하는 모습"> |
 
 ### 시연 영상
 
