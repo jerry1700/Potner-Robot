@@ -21,6 +21,12 @@ env/
 # Logs
 *.log
 
+# 테스트 캐시
+.pytest_cache/
+
+# Claude Code 개인 설정 (팀 공유 설정은 .claude/settings.json 으로 추적)
+.claude/settings.local.json
+
 # OS generated files
 .DS_Store
 .DS_Store?
