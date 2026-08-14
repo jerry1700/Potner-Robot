@@ -46,7 +46,7 @@ python -m flake8 . --count --select=E9,F63,F7,F82 \
 | `voice-chat-server/` | 음성 대화 FastAPI (STT→LLM→TTS→스피커/폰) |
 | `plant-robot-chat/` | 노트북용 웹 챗 테스트 앱 (Next.js) — `LLM_BACKEND=webchat`의 호출 대상 |
 | `tools/` | 수동 도구 — 회전 보정, 시연 조종기, Nav2 액션 목 |
-| `docs/HANDOVER.md` | 전체 인수인계 — 하드웨어·계정·주의사항 |
+| `docs/WIRING.md` | 장치별 배선·핀·역할 — 하드웨어 주의사항 포함 |
 | `docs/CODE_STYLE.md` | 타입힌트는 순수 로직 공개 함수에만 (노드 내부 금지) |
 | `docs/MQTT_CONTRACT.md` | 브로커 ACL이 막는 것들 — cross-device 구독 불가 |
 | `docs/LLM_CAPABILITIES.md` | LLM이 답할 수 있는 것/없는 것 |
