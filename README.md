@@ -34,15 +34,15 @@
 
 | 전체 모습 — 라이다 기둥과 화분 | 스테이션 도킹 |
 |:---:|:---:|
-| <img src="docs/media/demo-robot-cut.png" width="280" alt="로봇 전체 모습"> | <img src="docs/media/docking.png" width="360" alt="스테이션 도킹 장면"> |
+| <img src="docs/media/potner-full.png" width="280" alt="로봇 전체 모습"> | <img src="docs/media/docking.png" width="360" alt="스테이션 도킹 장면"> |
 | **장치 스테이션 — 펌프·카메라·ArUco 마커** | **시연장 전경** |
-| <img src="docs/media/station.png" width="360" alt="장치 스테이션"> | <img src="docs/media/demo-scene.jpg" width="400" alt="시연장에서 스테이션으로 이동하는 모습"> |
+| <img src="docs/media/station.png" width="360" alt="장치 스테이션"> | <img src="docs/media/scene.jpg" width="400" alt="시연장에서 스테이션으로 이동하는 모습"> |
 
 ### 시연 영상
 
 | 자동 급수 전체 시나리오 | 스테이션 자동 도킹과 급수 |
 |:---:|:---:|
-| ![자동 급수 전체 시나리오](docs/media/demo-mission.mp4) | ![스테이션 자동 도킹과 급수](docs/media/demo-watering.mp4) |
+| ![자동 급수 전체 시나리오](docs/media/watering-scenario.mp4) | ![스테이션 자동 도킹과 급수](docs/media/docking-watering.mp4) |
 | 물이 부족하면 임의의 위치에서 스테이션을 찾아가<br>필요한 행동을 마치고 대기 장소로 복귀 | 마커 도킹부터 급수까지 가까이에서 본 장면 |
 
 ## 시스템 구성
@@ -112,7 +112,6 @@ legacy/                   ROS 2 전환 이전 코드 (참고용, 실행되지 �
 | [`docs/ARRIVAL_TEST.md`](docs/ARRIVAL_TEST.md) | 귀가 마중 확인 절차 |
 | [`docs/JETSON_DISPLAY.md`](docs/JETSON_DISPLAY.md) | 젯슨 화면 세팅 (표정 표시 전 필독) |
 | [`docs/WIRING.md`](docs/WIRING.md) | 장치별 배선·핀·역할 |
-| [`docs/HANDOVER.md`](docs/HANDOVER.md) | 인수인계 — 진행 상황과 다음 작업 |
 | [`docs/LLM_CAPABILITIES.md`](docs/LLM_CAPABILITIES.md) | 대화 LLM이 답할 수 있는 것/없는 것 |
 | [`docs/LLM_QUESTION_EXAMPLES.md`](docs/LLM_QUESTION_EXAMPLES.md) | 시연·데모용 질문 카탈로그 |
 | [`docs/LLM_SENSOR_INTEGRATION_PLAN.md`](docs/LLM_SENSOR_INTEGRATION_PLAN.md) | LLM 센서 실측값 연동 계획·전환 절차 |
