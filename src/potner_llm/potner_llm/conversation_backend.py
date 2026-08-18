@@ -81,10 +81,10 @@ class HttpConversationBackend:
         except urllib.error.HTTPError as exc:
             if exc.code == 404:
                 return []
-            logger.warning("대화 이력 조회 실패 (HTTP %d) - 새 대화로 시작합니다.", exc.code)
+            logger.warning(f"대화 이력 조회 실패 (HTTP {exc.code}) - 새 대화로 시작합니다.")
             return []
         except urllib.error.URLError as exc:
-            logger.warning("대화 백엔드 연결 실패 (%s) - 새 대화로 시작합니다.", exc.reason)
+            logger.warning(f"대화 백엔드 연결 실패 ({exc.reason}) - 새 대화로 시작합니다.")
             return []
 
     def save(self, session_id: str, messages: list[dict[str, Any]]) -> None:
@@ -101,8 +101,7 @@ class HttpConversationBackend:
                 resp.read()
         except (urllib.error.HTTPError, urllib.error.URLError) as exc:
             logger.warning(
-                "대화 저장 실패 - 이번 대화는 로컬 메모리에만 남고 서버엔 저장되지 않았습니다: %s",
-                exc,
+                f"대화 저장 실패 - 이번 대화는 로컬 메모리에만 남고 서버엔 저장되지 않았습니다: {exc}"
             )
 
 

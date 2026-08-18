@@ -24,7 +24,7 @@ class SafetyNode(Node):
     def __init__(self):
         super().__init__("safety")
 
-        self.declare_parameter("scan_stop_distance", 0.25)  # m
+        self.declare_parameter("scan_stop_distance", 0.18)  # m
         self.declare_parameter("bumper_stop_distance", 0.12)  # m
         self.declare_parameter("front_arc_deg", 60.0)  # 정면 판정 각도 폭
         self.declare_parameter("clear_hysteresis", 0.08)  # m, 깜빡임 방지

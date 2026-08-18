@@ -10,8 +10,20 @@ base_driver:
     baud_rate: 115200
 
     wheel_diameter: 0.060     # 확정 — 60mm 로봇용 구동 바퀴
-    wheel_separation: 0.200   # TODO 실측 (m) — 좌우 바퀴 중심 간 거리
-    counts_per_rev: 1440      # 확정 — FIT0403 출력축 CPR
+    # 실측 보정값. 자로 잰 바퀴 중심 거리는 0.230m 이지만,
+    # 제자리 회전에서 타이어가 옆으로 비벼져 **회전에 실제로 작용하는
+    # 축간거리는 그보다 짧습니다.** 2026-08-10 에 3바퀴 회전으로 실측해
+    # 이 값을 얻었습니다 (tools/calibrate_turn.py).
+    #
+    # ★ 0.230 으로 되돌리지 마세요. 자로 잰 값과 다른 것이 정상입니다.
+    #   0.230 이었을 때 오도메트리가 회전을 약 5% 적게 세서, 180도 회전
+    #   명령에 몸이 190도를 돌고 좌표 주행도 엉뚱한 데로 갔습니다.
+    #   URDF(potner.urdf.xacro)는 바퀴가 실제로 붙은 자리라 0.230 그대로 둡니다.
+    #
+    # ★ 바퀴나 바닥재를 바꾸면 다시 재세요:
+    #     python3 tools/calibrate_turn.py
+    wheel_separation: 0.2179
+    counts_per_rev: 5760      # 실측 — 1440 CPR x 4 (쿼드러처). kinematics.py 참고
 
     # 안전 제한. 122RPM x 60mm 바퀴면 이론 최대는 약 0.38 m/s 지만,
     # 화분을 이고 다니는 로봇이라 절반 이하로 묶습니다. 급가속하면
@@ -30,8 +42,8 @@ plant_sensors:
     # 가짜 값을 흘리면 엉뚱한 급수 임무가 떠서 로봇이 계속 물을 받으러 갑니다.
     #   1. 센서를 공기 중에 두고 원시값 확인 -> moisture_raw_dry
     #   2. 표시선 아래까지 물에 담그고 확인   -> moisture_raw_wet
-    moisture_raw_dry: 0
-    moisture_raw_wet: 0
+    moisture_raw_dry: 24000
+    moisture_raw_wet: 12000
 
     battery_cells: 4          # 젯슨팩 4S (모터팩은 3S)
 
@@ -58,9 +70,29 @@ speaker:
     wav_dir: ""
     wav_player: ["aplay", "-q", "{text}"]
 
+    # --- 음성 대화 (tts/play_audio) ---
+    # 로봇에서 돌아가는 voice-chat-server 가 GMS 로 합성한 오디오 조각을
+    # 스풀에 쓰고 경로를 발행합니다. 그걸 재생하는 명령입니다.
+    #
+    # GMS TTS 에 response_format=wav 를 요청하므로 aplay 로 충분합니다
+    # (실측 2026-08-03: 200, PCM 16bit mono 24kHz). 서버 쪽 TTS_FORMAT 을
+    # mp3 로 되돌리면 aplay 가 못 읽으니 여기도 함께 바꿔야 합니다:
+    #   sudo apt install mpg123
+    #   audio_player: ["mpg123", "-q", "{text}"]
+    audio_player: ["aplay", "-q", "{text}"]
+
+    # 조각이 쌓이는 디렉터리. 봉투로 들어온 경로가 이 아래인지 확인하고
+    # 벗어나면 거부합니다 — 경로도 노드 밖에서 온 문자열이라서입니다.
+    # 음성 서버의 TTS_SPOOL_DIR 과 같은 곳을 가리켜야 합니다.
+    audio_spool_dir: "/tmp/potner-tts"
+
+    # 재생을 기다리는 조각 수 상한. 문장 단위로 쪼개니 평범한 대답은
+    # 3~6조각입니다. 이보다 밀리면 재생이 생성을 못 따라간 것입니다.
+    audio_queue_max: 8
+
 safety:
   ros__parameters:
-    scan_stop_distance: 0.25    # LiDAR 정지 거리 (m)
+    scan_stop_distance: 0.18  # LiDAR 정지 거리 (m)
     bumper_stop_distance: 0.12  # 범퍼 ToF 정지 거리 (m)
     front_arc_deg: 60.0         # 정면으로 볼 각도 폭
     clear_hysteresis: 0.08      # 해제 여유 (m) — 경계에서 깜빡임 방지
@@ -91,6 +123,59 @@ mission_manager:
     # true 면 귀가도 Nav2를 건너뛰므로 실제 운영에서는 반드시 false입니다.
     skip_navigation: false
 
+# Nav2 를 대신해 오도메트리로 목표 좌표까지 가는 간이 주행.
+#
+# ★ 좌표계가 오도메트리 원점입니다. 로봇을 재시작하면 원점이 그 자리로
+#   새로 잡혀 서버에 등록해 둔 좌표가 전부 무의미해집니다. 바닥에 원점을
+#   표시해 두고 늘 같은 자리·같은 방향에서 launch 를 띄우세요.
+#
+# ★ 장애물을 피해 돌아가지 못합니다. 앞을 막으면 safety_node 가 세울 뿐
+#   입니다. 넓은 집에서 실운영할 때는 Nav2 로 가야 합니다.
+simple_navigator:
+  ros__parameters:
+    # base_driver 의 max_wheel_speed(0.25)보다 넉넉히 낮게 잡습니다.
+    # 상한에 붙여 두면 회전 성분이 얹힐 때 한쪽 바퀴가 포화되어,
+    # 명령한 곡률과 실제 곡률이 달라집니다.
+    cruise_speed: 0.18       # m/s
+    slow_distance: 0.35      # m. 목표에 이만큼 남으면 감속 시작
+    min_speed: 0.05          # m/s. 감속 바닥
+    kp_heading: 1.2          # 방향 오차(rad) -> rad/s
+    max_angular: 0.8         # rad/s
+
+    # 마지막 방향 맞추기. 도킹 후 회전과 같은 이유로 끝에서 감속합니다 —
+    # 정지 명령이 물리 정지가 되기까지 0.2~0.5초가 걸려서, 전속으로
+    # 문턱을 지나면 그 지연이 그대로 초과 회전이 됩니다.
+    turn_speed: 0.5          # rad/s
+    turn_slow_angle_deg: 45.0
+    turn_min_speed: 0.15     # rad/s
+
+    # ★ 도착 여유가 곧 도킹의 출발 자세입니다. 스테이션 50cm 앞을 목표로
+    #   등록해 두면, 여기서 8cm 어긋나도 마커 방위가 9도라 카메라 시야
+    #   (반각 18도) 안에 들어옵니다. 15cm 로 늘리면 17도가 되어 경계에
+    #   걸리고, 도킹이 마커를 못 보고 탐색 회전부터 시작합니다.
+    position_tolerance: 0.08  # m
+    # ★ 방향 여유가 그대로 도킹의 마커 방위 오차가 됩니다. 여기서 멈춘
+    #   자세로 스테이션을 보게 되므로, 10도면 위치 오차 8cm(9도)와 합쳐
+    #   19도가 되어 시야(반각 18도) 밖입니다 — 실측에서 정확히 10도에
+    #   멈췄습니다. 5도면 합쳐 14도라 여유가 남습니다.
+    yaw_tolerance_deg: 5.0
+
+    # 이 시간을 넘기면 실패로 접습니다. 바퀴가 헛돌거나 safety 에 막혀
+    # 못 가는데 계속 명령을 내면 로봇이 벽을 밀고 있게 됩니다.
+    # ★ mission_manager 의 navigate_timeout(300초)보다 짧아야 합니다.
+    #   길면 클라이언트가 먼저 포기해서 원인이 로그에 안 남습니다.
+    navigate_timeout: 60.0
+
+# 좌표 등록용. 지금 서 있는 자리를 서버 API 가 그대로 받는 형태로
+# 내보냅니다 — ros2 topic echo /robot/pose --once
+#
+# ★ 오도메트리 원점 기준이라 재시작하면 좌표가 바뀝니다. 바닥에 원점을
+#   표시해 두고 늘 같은 자리에서 launch 를 띄우세요.
+pose_report:
+  ros__parameters:
+    publish_period: 1.0   # s. 좌표는 천천히 봐도 됩니다
+    log_pose: false       # true 면 화면에도 찍습니다 (다른 로그가 묻힙니다)
+
 docking_server:
   ros__parameters:
     # TODO: 실기에서 재튜닝. 진동하면 kp를 낮추고, 반응이 굼뜨면 올리세요.
@@ -98,11 +183,103 @@ docking_server:
     kp_yaw: 0.017            # 마커 기울기(deg) -> rad/s
     approach_speed: 0.12     # 접근 속도 (m/s) — 식물이 흔들리지 않게 천천히
     max_angular: 0.8         # 각속도 상한 (rad/s)
-    target_distance: 0.15    # 목표 정지 거리 (m)
-    marker_lost_timeout: 2.0 # 이 시간 넘게 마커를 못 보면 정지
-    search_timeout: 15.0     # 마커를 한 번도 못 보면 이때 포기
+    # 목표 정지 거리 (m). 카메라 렌즈에서 마커 면까지 — 카메라가 회전중심
+    # 보다 0.110m 앞이라 몸통 기준으로는 그만큼 더 가깝습니다.
+    #
+    # ★ 줄이면 마커가 화면을 꽉 채워 검출이 끊기기 쉽습니다. 0.15m 에서
+    #   44mm 마커는 화면 가로 640 중 257px 라 좌우 여유 172px, 상하 여유
+    #   19mm 입니다. 0.10m 로 줄이면 386px 가 되어 좌우 114px, **상하는
+    #   5mm** 뿐이라 마커 높이를 카메라 광축(바닥 130mm)에 5mm 안으로
+    #   맞추지 못하면 위아래가 잘립니다 — 실기에서 불가능하다고 판단해
+    #   0.15m 로 되돌렸습니다.
+    target_distance: 0.15
+    # 마커를 놓친 뒤 이 시간까지는 멈춰서 재검출을 기다리고, 넘겨야 탐색
+    # 회전을 시작합니다. 놓침 대부분이 자기 움직임의 번짐이라 멈추면 다시
+    # 잡히는데, 곧바로 돌면 방금까지 보이던 마커를 화면 밖으로 밀어냅니다.
+    marker_lost_timeout: 2.0
+
+    # ★ 조준점 오프셋 — 비스듬히 출발해도 스테이션 정면으로 돌아 들어가게
+    #   하는 이득 (px/deg). 마커를 화면 정중앙이 아니라 기울기 반대쪽으로
+    #   비껴 잡아 접근 곡선을 법선 축 위로 폅니다. 시뮬레이션(시드 30,
+    #   실코드 재검증): 5도 비스듬 출발 도킹률 20~33% -> 97~100%, 10도는
+    #   0.7m 출발 기준 0 -> 80%. 수직 출발 퇴행 없음. 0 이면 예전 동작
+    #   그대로입니다.
+    #
+    #   ★ 8 이상 금지 — 제자리 정렬에서 회전은 좌우 오차를 15.3px/deg 로
+    #     함께 움직여서, 이 이득이 15.3 - kp_yaw/kp_lateral (= 8.5) 를
+    #     넘으면 되먹임 부호가 뒤집혀 정렬이 발산합니다.
+    aim_offset_px_per_deg: 6.0
+    aim_offset_distance: 0.55  # m. 이 밖에선 끔 — 원거리 yaw 추정은 부호까지 튐
+    aim_offset_max_px: 120.0   # px. 상한 — 마커를 화면 밖으로 밀지 않게
+
+    # ★ 가장자리 보호 — 마커가 화면 끝으로 밀려가면 조준점을 접고 속도를
+    #   줄여 중앙으로 되돌릴 시간을 법니다. 놓치고 나서 찾는 것보다 안
+    #   놓치는 것이 훨씬 쌉니다 (유실 = 정지 대기 2초 + 탐색 회전).
+    #   가까워질수록 시야 여유가 급격히 좁아지는 것이 유실의 근본 원인
+    #   입니다 — 좌우 한계가 0.5m 에서 약 250px, 목표 거리 0.15m 에서는
+    #   172px. edge_guard_px 는 그 한계보다 크면 안 됩니다. 크면 보호가
+    #   최대로 걸리기 전에 마커가 이미 잘려 나갑니다.
+    #   여전히 자주 놓치면 130 으로 낮추세요.
+    edge_guard_px: 170.0        # px. 이 좌우 오차에서 보호가 최대
+    edge_min_speed_ratio: 0.25  # 보호 최대일 때 남기는 속도 비율 (0 금지 — 교착)
+    # 마커를 한 번도 못 본 채 이 시간이 지나면 포기. 0 이면 전체 제한
+    # (docking_timeout)까지 계속 찾습니다. 예전 15초는 탐색 회전이 한 바퀴
+    # 도는 시간(약 16초)보다 짧아 한 바퀴도 못 돌고 접었습니다.
+    search_timeout: 0.0
+
+    # 마커를 못 찾았을 때의 탐색 동작. 한 바퀴 돌고 -> 조금 전진 -> 다시
+    # 한 바퀴를 반복합니다. 예전에는 0,0 만 내고 서 있어서 한 번 놓치면
+    # 장면이 안 바뀌어 영영 못 찾았습니다.
+    #
+    # ★ search_front_clear 를 낮추지 마세요. safety 는 우선순위 255 라
+    #   걸리는 순간 도킹(150)이 회전조차 못 하고, 도킹 제어기에는 후진이
+    #   없어 스스로 빠져나올 수 없습니다. safety 정지선(라이다 기준 0.18m)
+    #   보다 넉넉히 앞에서 멈춰야 갇히지 않습니다.
+    search_turn_speed: 0.4        # rad/s
+    search_sweep_deg: 360.0
+    # ★ 스텝 회전 — 이만큼 돌고 멈춰서 카메라에 찾을 시간을 줍니다.
+    #   연속으로 돌면 번짐 때문에 마커 위를 지나가도 검출이 안 됩니다
+    #   (실기: 몇 바퀴를 돌아도 못 찾음). 스텝은 시야(실효 36도)보다
+    #   작아야 멈춤 지점끼리 겹쳐 빈틈이 없습니다 (정지 지연으로 스텝마다
+    #   ~7도를 더 지나가므로 실효 간격은 설정값 + 7도). 탐색은 돌기 전에
+    #   먼저 멈춰 보므로, 마커가 이미 앞에 있으면 회전 없이 바로 붙습니다.
+    #   0 이면 예전처럼 연속 회전. 한 바퀴에 약 25초.
+    search_step_deg: 20.0
+    search_pause_time: 1.0        # s. 멈춰서 보는 시간
+    search_creep_speed: 0.06      # m/s
+    search_creep_distance: 0.15   # m. 한 바퀴 돌고 못 찾으면 이만큼 이동
+    search_front_clear: 0.50      # m. 정면이 이보다 가까우면 전진 금지
     docking_timeout: 90.0    # 이 시간 넘으면 포기 (무한루프 방지)
     confirm_timeout: 5.0     # 스테이션 접점을 기다리는 시간
+
+    # 목표 거리 도착 후 이 시간까지 정렬이 안 끝나면 결단합니다. 제자리
+    # 회전은 좌우 오차와 기울기를 함께 움직여 둘이 상쇄되는 평형에 갇힐
+    # 수 있는데(후진이 없어 물러나지도 못함), 90초를 태우는 대신 잔류가
+    # 허용치 2배 안이면 수용하고 회전으로, 크면 일찍 실패합니다. 0 이면 끔.
+    align_timeout: 15.0
+
+    # 정렬이 끝난 뒤 제자리 회전. 화분이 로봇 뒤쪽에 있어서 마커를 보고
+    # 붙은 자세 그대로면 스테이션 장치가 화분에 닿지 않습니다. 회전까지
+    # 끝나야 액션이 성공하고, 그때 서버로 OK(=도킹 완료)가 나갑니다.
+    #
+    # ★ 한때 170 이었습니다. wheel_separation 이 0.230 이던 시절 오도메트리가
+    #   회전을 5% 적게 세서, 180 을 주면 몸이 190도를 돌았기 때문입니다.
+    #   2026-08-10 에 축간거리를 실측 보정(0.2179)해 근본 원인을 없앴으므로
+    #   정상값으로 되돌렸습니다. 다시 어긋나면 여기가 아니라 축간거리를
+    #   재세요 — python3 tools/calibrate_turn.py
+    turn_after_dock_deg: 180.0
+    turn_speed: 0.5          # rad/s. + 가 좌회전
+    # ★ 끝 감속 — 정지 명령이 물리 정지가 되기까지 0.2~0.5초가 걸려,
+    #   전속(0.5)으로 문턱을 지나면 그 지연이 그대로 +10도가 됩니다
+    #   (실측 190도). 남은 각도가 turn_slow_angle_deg 아래면 비례 감속,
+    #   turn_min_speed 가 바닥, turn_stop_margin_deg 만큼 일찍 정지 판정.
+    #   실코드 시뮬레이션 기준 총지연 0.6초 이하에서 최종각 180~184도,
+    #   실측 상당 지연(0.35초)에서 181도. 그래도 188도 이상 돌면
+    #   turn_min_speed 를 0.10 으로 (정지마찰 정체 위험과 맞바꿈).
+    turn_slow_angle_deg: 60.0
+    turn_min_speed: 0.15     # rad/s. 더 낮추면 정지마찰에 걸려 목표 직전 정체
+    turn_stop_margin_deg: 2.0
+    turn_timeout: 20.0       # 감속 포함 180도에 약 8~9초 — 2배 여유
 
     # 스테이션 A3144 홀 센서 신호를 성공 조건으로 요구할지.
     # 스테이션이 아직 없으므로 false. 완성되면 true 로 바꿔서
@@ -136,6 +313,27 @@ person_detector:
     confidence: 0.5
     inference_period: 0.2    # 5Hz
     device: cuda
+
+# 귀가 인사 트리거. 카메라가 바닥 13cm 에 틸트 없이 달려 있어 사람은 발밖에
+# 안 보이므로(전신이 담기려면 5.73m), 라이다(바닥 52cm = 허벅지 높이)로
+# "배경에 없던 것이 나타났다" 를 봅니다. scan_presence.py 머리말 참고.
+#
+# ★ 표시된 값은 실기 스캔을 보고 조정해야 합니다. 아래 순서로 재세요:
+#     ros2 topic echo --once /scan | grep angle_increment   -> 각폭 계산의 분모
+#     ros2 bag record -o /tmp/scan_empty_5min /scan         -> 잡음 sigma
+#     ros2 bag record -o /tmp/scan_person_walkin /scan      -> 실제 거리·각폭
+scan_presence:
+  ros__parameters:
+    sector_deg: 100.0        # ★튜닝 — 뒤를 지나가는 사람은 배제
+    min_range_m: 0.40        # 확정 — safety 해제선(0.18+0.08) 바깥
+    max_range_m: 2.50        # ★튜닝 — 현관 깊이에 맞출 것
+    baseline_margin_m: 0.12  # ★튜닝 — 라이다 잡음 실측 후 확정
+    leg_width_m: 0.12
+    width_tolerance: 0.5     # ★튜닝 — 기대 각폭의 0.5~2배만 인정
+    persist_scans: 3         # 확정 — 11.4Hz 에서 263ms
+    baseline_scans: 10
+    settle_seconds: 1.5      # ★튜닝 — 정지 후 배경 잡기까지
+    motion_epsilon: 0.02
 
 face_display:
   ros__parameters:

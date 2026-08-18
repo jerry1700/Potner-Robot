@@ -81,6 +81,9 @@ const TOOL_LABELS: Record<string, string> = {
   get_seasonal_care_tips: '계절별 관리 팁',
   recommend_plant: '식물 추천',
   get_current_weather: '현재 날씨',
+  search_web_knowledge: '위키백과 검색',
+  get_news: '오늘의 뉴스',
+  get_plant_sensor_status: '센서 상태',
 };
 
 /** 도구 결과는 JSON 문자열로 들어오지만 실패 시 평문일 수 있어 파싱 실패를 허용한다. */

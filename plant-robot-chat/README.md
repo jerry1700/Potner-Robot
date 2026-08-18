@@ -13,7 +13,7 @@ Next.js 14 (App Router) + TypeScript + Tailwind CSS + Anthropic Claude API.
 
 ### 사전 요구사항: Node.js
 
-**현재 이 PC에는 Node.js가 설치되어 있지 않습니다.** 먼저 설치하세요 (LTS 20 이상 권장):
+Node.js가 없는 PC라면 먼저 설치하세요 (LTS 20 이상 권장):
 
 ```powershell
 # winget 사용

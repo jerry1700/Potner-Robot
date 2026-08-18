@@ -4,7 +4,7 @@ import logging
 from typing import Any, Callable, Optional
 
 from .client import ChatMessage, LlmClient, create_llm_client
-from .context_builder import DEFAULT_MAX_CONTEXT_TOKENS, ContextBuilder, trim_history
+from .context_builder import DEFAULT_MAX_CONTEXT_TOKENS, ContextBuilder
 from .conversation_backend import ConversationBackend
 from .events import EventStore
 from .factcheck import (
@@ -23,6 +23,7 @@ from .prompts import (
 from .status import PlantStatus
 from .templates import render_briefing, render_diary, render_report
 from .tools import ToolHub
+from .web_provider import create_web_provider
 
 logger = logging.getLogger(__name__)
 
@@ -68,6 +69,10 @@ class DialogueService:
         )
         self._backend = conversation_backend
         self._session_id = session_id
+        # 웹 조회(날씨·지식·뉴스)는 config의 web: 섹션으로 켠다. 여기서 한 번
+        # 만들어 두면 호출부(cli.py/app.py) 수정 없이 모든 대화에 적용되고,
+        # provider의 최근 성공값 캐시도 대화 간에 유지된다.
+        self._web = create_web_provider(config)
         self._history: list[ChatMessage] = (
             self._restore_history() if self._backend is not None else []
         )
@@ -125,8 +130,7 @@ class DialogueService:
                     fact = verify_response(text, snapshot_from_status(status))
                     if not fact.ok:
                         logger.warning(
-                            "일기 사실성 검증 실패 — 템플릿 폴백 (%s)",
-                            ", ".join(fact.issue_codes),
+                            f"일기 사실성 검증 실패 — 템플릿 폴백 ({', '.join(fact.issue_codes)})"
                         )
                         text = None
             except RuntimeError:
@@ -135,7 +139,9 @@ class DialogueService:
 
     def chat_once(self, user_text: str) -> str:
         status = self._get_status()
-        tools = ToolHub(get_status=self._get_status, event_store=self.event_store)
+        tools = ToolHub(
+            get_status=self._get_status, event_store=self.event_store, web=self._web
+        )
         user_message = ChatMessage(role="user", content=user_text)
 
         if self.llm.available():
@@ -161,8 +167,8 @@ class DialogueService:
                         break
                 if fact is not None and not fact.ok:
                     logger.warning(
-                        "chat_once 사실성 검증 실패 — 상태 기반 폴백으로 대체 (%s)",
-                        ", ".join(fact.issue_codes),
+                        f"chat_once 사실성 검증 실패 — 상태 기반 폴백으로 대체 "
+                        f"({', '.join(fact.issue_codes)})"
                     )
                     reply = f"음, 방금은 말이 좀 꼬였나 봐. {self._grounded_reply(status)}"
                 self._remember_turn(user_message, ChatMessage(role="assistant", content=reply))
@@ -205,8 +211,8 @@ class DialogueService:
         """백엔드에 저장된 대화 전체를 그대로 불러온다 (기록은 손실 없이 보존).
 
         LLM에 매 호출마다 전체를 다시 넘기면 대화가 길어질수록 토큰 비용이
-        계속 커지므로, 실제로 프롬프트에 넣는 양은 _bounded_history()에서
-        최근 max_history_turns턴만 잘라 쓴다.
+        계속 커지므로, 실제로 프롬프트에 넣는 양은 ContextBuilder.build()가
+        최근 max_history_turns턴·토큰 예산 안으로 잘라 쓴다.
         """
         assert self._backend is not None
         raw = self._backend.load(self._session_id)
@@ -215,10 +221,6 @@ class DialogueService:
             for item in raw
             if item.get("content")
         ]
-
-    def _bounded_history(self) -> list[ChatMessage]:
-        """최근 대화만 잘라낸다 — 교환(exchange) 단위라 툴콜 쌍이 안 끊긴다."""
-        return trim_history(self._history, max_messages=self._max_history_turns * 2)
 
     def _remember_turn(self, user_message: ChatMessage, assistant_message: ChatMessage) -> None:
         self._history.append(user_message)

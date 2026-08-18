@@ -3,7 +3,7 @@
 
 std_msgs/Header header
 
-int32 left_ticks           # 좌 엔코더 누적 카운트 (1440 = 1회전)
+int32 left_ticks           # 좌 엔코더 누적 카운트 (5760 = 1회전, 실측)
 int32 right_ticks          # 우 엔코더 누적 카운트
 float32 left_velocity      # 좌 바퀴 실측 선속도 (m/s)
 float32 right_velocity     # 우 바퀴 실측 선속도 (m/s)

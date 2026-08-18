@@ -1,5 +1,3 @@
-from glob import glob
-
 from setuptools import find_packages, setup
 
 package_name = "potner_mission"
@@ -22,6 +20,9 @@ setup(
         "console_scripts": [
             "mission_manager = potner_mission.mission_manager_node:main",
             "safety = potner_mission.safety_node:main",
+            "drive_node = potner_mission.drive_node:main",
+            "simple_navigator = potner_mission.simple_navigator_node:main",
+            "pose_report = potner_mission.pose_report_node:main",
         ],
     },
 )
