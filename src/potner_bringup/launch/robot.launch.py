@@ -31,12 +31,39 @@ def generate_launch_description():
 
     use_camera = LaunchConfiguration("use_camera")
     use_lidar = LaunchConfiguration("use_lidar")
+    camera_device = LaunchConfiguration("camera_device")
+    use_person_detector = LaunchConfiguration("use_person_detector")
+    use_simple_nav = LaunchConfiguration("use_simple_nav")
+    use_safety = LaunchConfiguration("use_safety")
 
     robot_description = ParameterValue(Command(["xacro ", xacro_path]), value_type=str)
 
     return LaunchDescription([
         DeclareLaunchArgument("use_camera", default_value="true"),
         DeclareLaunchArgument("use_lidar", default_value="true"),
+        # udev 규칙이 만드는 고정 이름입니다 (README "USB 장치 이름 고정").
+        # /dev/video0 을 그대로 쓰면 안 되는 이유가 두 가지입니다. UVC 웹캠은
+        # 영상용과 메타데이터용 노드를 함께 만들어서 번호가 둘 이상 생기고,
+        # 그 번호가 꽂는 순서와 부팅 타이밍에 따라 바뀝니다. 어긋나면
+        # v4l2_camera 가 "No such file or directory" 로 조용히 물러나고,
+        # marker_detector 는 영영 아무것도 발행하지 않아 도킹이 15초 뒤
+        # "마커를 찾지 못함" 으로 끝납니다 — 원인이 카메라라는 단서가 없습니다.
+        # 규칙을 아직 안 만들었으면 camera_device:=/dev/video0 으로 넘기세요.
+        DeclareLaunchArgument("camera_device", default_value="/dev/video_cam"),
+        # YOLO 사람 인지. 젯슨에 ultralytics 가 없고, 있어도 카메라 높이 탓에
+        # 사람을 제대로 못 봅니다. 인사는 scan_presence 가 맡습니다.
+        DeclareLaunchArgument("use_person_detector", default_value="false"),
+        # Nav2 대신 오도메트리로 목표까지 가는 간이 주행. 좁은 시연
+        # 공간에서는 Nav2 가 기본 여유(55cm)만으로도 갈 칸을 다 막아
+        # 경로를 못 만듭니다. Nav2 를 띄울 때는 반드시 false 로 끄세요.
+        DeclareLaunchArgument("use_simple_nav", default_value="true"),
+        # ★ 안전 정지. 통제된 시연장처럼 장애물이 없다고 확신할 때만
+        #   끄세요 (use_safety:=false). 끄면 라이다에 뭐가 잡혀도 로봇이
+        #   서지 않습니다 — 사람 발이든 스테이션이든 그대로 밀고 갑니다.
+        #
+        #   라이다 자체는 꺼지지 않습니다. 마중 시연의 사람 감지
+        #   (scan_presence)와 도킹 탐색의 전방 확인이 라이다를 씁니다.
+        DeclareLaunchArgument("use_safety", default_value="true"),
 
         # ---- 형상: URDF로부터 고정 TF를 발행합니다. Nav2의 전제조건.
         Node(
@@ -63,9 +90,12 @@ def generate_launch_description():
         ),
 
         # ---- 안전: 최우선 정지. 다른 무엇보다 먼저 떠 있어야 합니다.
+        # 끄면 cmd_vel_safety 에 발행자가 없어져 twist_mux 의 255 슬롯이
+        # 비고, 그 아래(도킹 150 / 주행 100)가 그대로 모터까지 갑니다.
         Node(
             package="potner_mission",
             executable="safety",
+            condition=IfCondition(use_safety),
             parameters=[params],
             output="screen",
         ),
@@ -100,7 +130,7 @@ def generate_launch_description():
             executable="v4l2_camera_node",
             condition=IfCondition(use_camera),
             parameters=[{
-                "video_device": "/dev/video0",
+                "video_device": ParameterValue(camera_device, value_type=str),
                 "image_size": [640, 480],
             }],
         ),
@@ -125,9 +155,23 @@ def generate_launch_description():
             executable="marker_detector",
             parameters=[params],
         ),
+        # 귀가 인사 트리거. 카메라(바닥 13cm, 틸트 0)로는 사람 발밖에 안
+        # 보여서 라이다(바닥 52cm)로 봅니다 — scan_presence.py 머리말 참고.
+        Node(
+            package="potner_perception",
+            executable="scan_presence",
+            parameters=[params],
+            output="screen",
+        ),
+        # YOLO 경로. 기본으로 끕니다 — ultralytics 가 없으면 아무것도
+        # 발행하지 않아 무해하지만, 누가 설치하면 scan_presence 와 함께
+        # perception/person_present 를 발행하게 됩니다. 인사는 한 번 쏘면
+        # 시간창이 닫히고 HOME 복귀까지 시작되므로(mission_manager
+        # _on_person), 자율 발화 경로가 둘이면 오발 확률이 두 배입니다.
         Node(
             package="potner_perception",
             executable="person_detector",
+            condition=IfCondition(use_person_detector),
             parameters=[params],
         ),
 
@@ -141,6 +185,38 @@ def generate_launch_description():
         Node(
             package="potner_mission",
             executable="mission_manager",
+            parameters=[params],
+            output="screen",
+        ),
+
+        # ---- 수동 주행: 휴대폰 방향 버튼 -> twist_mux teleop 슬롯
+        Node(
+            package="potner_mission",
+            executable="drive_node",
+            parameters=[params],
+            output="screen",
+        ),
+
+        # ---- 좌표 주행: Nav2 를 대신해 오도메트리로 목표까지 갑니다.
+        #
+        # ★ Nav2 를 쓸 때는 반드시 use_simple_nav:=false 로 끄세요. 같은
+        #   액션 이름(navigate_to_pose)을 두 서버가 물면 mission_manager 가
+        #   아무 쪽에나 붙어서, 어느 쪽이 로봇을 몰고 있는지 알 수 없게
+        #   됩니다.
+        Node(
+            package="potner_mission",
+            executable="simple_navigator",
+            parameters=[params],
+            condition=IfCondition(use_simple_nav),
+            output="screen",
+        ),
+
+        # ---- 좌표 등록 도구: 지금 서 있는 좌표를 읽기 좋게 내보냅니다.
+        # 로봇을 등록할 자리로 데려간 뒤 아래를 읽어 서버에 넣습니다.
+        #   ros2 topic echo /robot/pose --once
+        Node(
+            package="potner_mission",
+            executable="pose_report",
             parameters=[params],
             output="screen",
         ),

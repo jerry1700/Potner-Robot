@@ -27,7 +27,7 @@ def _status(*, needs_attention: bool = False, temp: float = 25.0) -> PlantStatus
     )
 
 
-# --- 시스템 프롬프트: 페르소나·말투·형식·제약 -------------------------------------
+# --- 시스템 프롬프트: 페르소나·말투·형식·제약 ---
 
 
 def test_diary_system_prompt_has_default_persona_and_constraints():
@@ -47,7 +47,7 @@ def test_diary_system_prompt_reflects_custom_persona_and_speech_style():
     assert "초록이" not in prompt
 
 
-# --- 사용자 프롬프트: 입력 데이터 반영 구조 ---------------------------------------
+# --- 사용자 프롬프트: 입력 데이터 반영 구조 ---
 
 
 def test_diary_user_prompt_embeds_date_status_events_activities():
@@ -69,7 +69,7 @@ def test_diary_user_prompt_marks_missing_records():
     assert "(기록 없음)" in prompt
 
 
-# --- 템플릿 폴백 (LLM 없이) --------------------------------------------------------
+# --- 템플릿 폴백 (LLM 없이) ---
 
 
 def test_render_diary_quiet_healthy_day():
@@ -86,7 +86,7 @@ def test_render_diary_with_events_and_attention():
     assert "신경 쓰여" in text
 
 
-# --- DialogueService.diary: 생성·검증·폴백 흐름 ------------------------------------
+# --- DialogueService.diary: 생성·검증·폴백 흐름 ---
 
 
 def _diary_service(tmp_path, reply=None, **kwargs):

@@ -34,8 +34,8 @@ class BaseDriver(Node):
         self.declare_parameter("serial_port", "/dev/ttyUSB_ESP32")
         self.declare_parameter("baud_rate", 115200)
         self.declare_parameter("wheel_diameter", 0.060)
-        self.declare_parameter("wheel_separation", 0.200)
-        self.declare_parameter("counts_per_rev", 1440)
+        self.declare_parameter("wheel_separation", 0.2179)
+        self.declare_parameter("counts_per_rev", 5760)
         self.declare_parameter("max_wheel_speed", 0.25)
         self.declare_parameter("cmd_vel_timeout", 0.5)
         self.declare_parameter("publish_rate", 30.0)
@@ -89,7 +89,7 @@ class BaseDriver(Node):
             )
             return None
 
-    def _write(self, frame: str):
+    def _write(self, frame):
         if self._serial is None:
             return
         try:
@@ -128,8 +128,15 @@ class BaseDriver(Node):
 
         # 워치독: 상위 노드가 조용하면 멈춥니다. Nav2가 죽어도 로봇은 서야 합니다.
         idle = (now - self._last_cmd_time).nanoseconds * 1e-9
-        if idle > self.cmd_vel_timeout:
+        if idle > self.cmd_vel_timeout or max(abs(self._target[0]), abs(self._target[1])) < 1e-6:
             self._target = (0.0, 0.0)
+
+        # 목표가 0이면 V,0,0 이 아니라 S 를 보냅니다. V,0,0 은 펌웨어 PID를
+        # 계속 돌리는 명령이라, 엔코더 선이 빠져 측정이 0으로 얼어붙으면
+        # 주행 중 감긴 적분항이 풀리지 않아 바퀴가 멈추지 않습니다 (실기에서
+        # 당했습니다). S 는 펌웨어가 PID 상태를 통째로 리셋하므로 엔코더
+        # 상태와 무관하게 무조건 멈춥니다.
+        if self._target == (0.0, 0.0):
             self._write(proto.encode_stop())
         else:
             self._write(proto.encode_velocity(*self._target))
@@ -162,10 +169,26 @@ class BaseDriver(Node):
         qz = math.sin(theta / 2.0)
         qw = math.cos(theta / 2.0)
 
+        # ★ 자식 프레임은 base_link 가 아니라 base_footprint 입니다.
+        #
+        #   URDF 가 base_footprint -> base_link 를 이미 발행합니다
+        #   (potner.urdf.xacro 의 base_joint, 고정 조인트라 /tf_static).
+        #   여기서 odom -> base_link 를 내보내면 base_link 에 부모가 둘이
+        #   되어 TF 트리가 두 조각으로 갈라집니다. 그러면 slam_toolbox 가
+        #   "Failed to compute odom pose" 를 쏟아내며 스캔을 전부 버려서
+        #   **지도가 한 장도 안 만들어집니다.** 실기에서 그렇게 당했습니다.
+        #
+        #   올바른 사슬은 map -> odom -> base_footprint -> base_link 이고,
+        #   slam_toolbox.yaml 의 base_frame 과 nav2_params.yaml 의
+        #   base_frame_id / robot_base_frame 이 전부 base_footprint 입니다.
+        #
+        #   오도메트리가 재는 것은 바닥에 투영된 평면 자세라 base_footprint
+        #   가 의미상으로도 맞습니다 — base_link 는 거기서 바퀴 반지름만큼
+        #   떠 있고, 그 차이는 URDF 가 채웁니다.
         msg = Odometry()
         msg.header.stamp = stamp.to_msg()
         msg.header.frame_id = "odom"
-        msg.child_frame_id = "base_link"
+        msg.child_frame_id = "base_footprint"
         msg.pose.pose.position.x = x
         msg.pose.pose.position.y = y
         msg.pose.pose.orientation.z = qz
@@ -177,7 +200,7 @@ class BaseDriver(Node):
         tf = TransformStamped()
         tf.header.stamp = stamp.to_msg()
         tf.header.frame_id = "odom"
-        tf.child_frame_id = "base_link"
+        tf.child_frame_id = "base_footprint"
         tf.transform.translation.x = x
         tf.transform.translation.y = y
         tf.transform.rotation.z = qz

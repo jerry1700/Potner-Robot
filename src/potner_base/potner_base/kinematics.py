@@ -16,9 +16,24 @@ class DriveConfig:
     """로봇 실측값. potner_bringup/config/potner_params.yaml 에서 주입됩니다."""
 
     wheel_diameter: float = 0.060  # 확정 — 60mm 구동 바퀴
-    wheel_separation: float = 0.200  # TODO 실측 — 좌우 바퀴 중심 간 거리 (m)
-    counts_per_rev: int = 1440  # 확정 — FIT0403 출력축 CPR
-    max_wheel_speed: float = 0.25  # 안전 제한 (m/s). 이론 최대는 약 0.48
+    # 실측 보정값. 자로 잰 바퀴 중심 거리는 0.230m 이지만,
+    # 제자리 회전에서 타이어가 옆으로 비벼져 **회전에 실제로 작용하는
+    # 축간거리는 그보다 짧습니다.** 2026-08-10 에 3바퀴 회전으로 실측해
+    # 이 값을 얻었습니다 (tools/calibrate_turn.py).
+    #
+    # ★ 0.230 으로 되돌리지 마세요. 자로 잰 값과 다른 것이 정상입니다.
+    #   0.230 이었을 때 오도메트리가 회전을 약 5% 적게 세서, 180도 회전
+    #   명령에 몸이 190도를 돌고 좌표 주행도 엉뚱한 데로 갔습니다.
+    #   URDF(potner.urdf.xacro)는 바퀴가 실제로 붙은 자리라 0.230 그대로 둡니다.
+    #
+    # ★ 바퀴나 바닥재를 바꾸면 다시 재세요:
+    #     python3 tools/calibrate_turn.py
+    wheel_separation: float = 0.2179
+    # 사양서의 "1440 CPR" 은 채널당 사이클이고, 쿼드러처 4배수를 곱해야
+    # 실제 카운트가 됩니다. 손으로 한 바퀴 돌려 5,941카운트로 실측 확인.
+    counts_per_rev: int = 5760  # 실측 — 1440 CPR x 4 (쿼드러처)
+    # 안전 제한 (m/s). 무부하 최고속도는 122RPM x 지름 60mm = 약 0.383
+    max_wheel_speed: float = 0.25
 
     @property
     def wheel_circumference(self) -> float:

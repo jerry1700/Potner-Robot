@@ -23,7 +23,11 @@ from .client import describe_llm
 from .conversation_backend import create_conversation_backend
 from .dialogue import DialogueService
 from .events import EventStore
-from .sensor_provider import FileSensorSource, SensorDataProvider
+from .sensor_provider import (
+    FileSensorSource,
+    SensorDataProvider,
+    create_sensor_provider,
+)
 
 # .../src/potner_llm/potner_llm/cli.py 기준
 PACKAGE_DIR = Path(__file__).resolve().parents[1]  # .../src/potner_llm
@@ -48,11 +52,13 @@ def _load_config(path: Path) -> dict[str, Any]:
     return yaml.safe_load(path.read_text(encoding="utf-8")) or {}
 
 
-# 센서 소스: data/sensors.json을 읽는다 — 값을 바꿔가며 응답 변화를 확인할
-# 수 있다. 파일이 없거나 깨져도 provider가 흡수(미측정 라벨)한다.
-_sensor_provider = SensorDataProvider(
-    FileSensorSource(PACKAGE_DIR / "data" / "sensors.json")
-)
+def _build_sensor_provider(config: dict[str, Any]) -> SensorDataProvider:
+    """config의 sensor: 섹션으로 고른다. 없으면 data/sensors.json 파일 폴백 —
+    값을 바꿔가며 응답 변화를 확인할 수 있고, 파일이 없거나 깨져도 provider가
+    흡수(미측정 라벨)한다."""
+    return create_sensor_provider(config) or SensorDataProvider(
+        FileSensorSource(PACKAGE_DIR / "data" / "sensors.json")
+    )
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -83,10 +89,11 @@ def main(argv: list[str] | None = None) -> int:
         backend.save(session_id, [])
 
     store = EventStore(PACKAGE_DIR / "data" / "events.jsonl")
+    sensor_provider = _build_sensor_provider(config)
 
     service = DialogueService(
         config,
-        get_status=_sensor_provider.status,
+        get_status=sensor_provider.status,
         event_store=store,
         conversation_backend=backend,
         session_id=session_id,

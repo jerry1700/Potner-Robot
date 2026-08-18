@@ -71,7 +71,7 @@ pattern read  potner/device/%u/command/#
 | `potner/station/{역할}/request` 발행 | 급수·송풍 요청 | 급수 명령은 서버가 스테이션에 직접 보냅니다 |
 | `potner/station/+/docked` 구독 | 홀 센서 접점 확인 | `require_station_confirm` 을 쓸 수 없습니다 (기본 `false`) |
 | `potner/device/+/sensor/telemetry` 구독 | 스테이션 온도 받기 | `plant/temperature` 가 항상 `None` → **송풍 임무가 걸리지 않습니다** |
-| `potner/device/{id}/speech` 구독 | LLM 대사 받기 | **TTS 대사 전달 경로가 없습니다** |
+| `potner/device/{id}/speech` 구독 | LLM 대사 받기 | 서버 경유 대신 **음성 서버를 로봇에서 직접 띄워** 우회했습니다 (아래) |
 
 ## 배터리를 한 종류만 재는 이유
 
@@ -148,7 +148,24 @@ QoS 1로 같은 명령이 다시 와도 `requestId` 결과 캐시로 이동을 �
 `command/navigate`도 같은 모양입니다. 자세한 계약과 확인 절차는
 [`NAVIGATE_TEST.md`](NAVIGATE_TEST.md)에 있습니다.
 
+## 음성 대화는 MQTT를 쓰지 않습니다
+
+브로커 ACL이 장치에 `command/#` 읽기만 허용해서 서버→장치 대사 토픽을 만들 수
+없었습니다. `command/speech` 추가를 기다리는 대신, **음성 서버를 로봇에서 직접
+띄우는** 쪽으로 닫았습니다. 서버 팀 작업이 필요 없습니다.
+
+```
+폰 브라우저 ──(같은 Wi-Fi)──> voice-chat-server (로봇 온보드 :8080)
+                                │ GMS STT → LLM → GMS TTS(wav)
+                                │ 조각을 스풀에 쓰고 경로 발행
+                                v
+                             tts/play_audio ──> speaker_node ──> 스피커
+```
+
+`tts/play_audio` / `tts/cancel`은 **로봇 내부 ROS 토픽**이라 브로커와 무관합니다.
+실행법과 계약은 [`../voice-chat-server/README.md`](../voice-chat-server/README.md).
+
 ## 아직 미구현
 
-- **`command/speech`** — 서버 팀에 추가를 요청해야 합니다. 현재 명세에 대사
-  전달 토픽이 없습니다
+- **`command/speech`** — 서버가 로봇에게 대사를 내려보내는 경로. 위 우회로
+  당장 급하지 않습니다. 서버가 대화를 주도해야 할 일이 생기면 요청하세요

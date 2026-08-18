@@ -21,6 +21,12 @@ env/
 # Logs
 *.log
 
+# 테스트 캐시
+.pytest_cache/
+
+# Claude Code 개인 설정 (팀 공유 설정은 .claude/settings.json 으로 추적)
+.claude/settings.local.json
+
 # OS generated files
 .DS_Store
 .DS_Store?
@@ -62,5 +68,12 @@ src/ydlidar_ros2_driver/
 # If you don't want to track generated markers, uncomment the line below
 # marker_id_*.png
 
+# 시연 원본 사진·영상 (약 200MB). 웹용 압축본만 docs/media/ 에 커밋하고
+# 원본은 팀 드라이브로 공유합니다 — 위 PDF와 같은 이유입니다.
+/image/
+
 # potner_llm 로컬 CLI 실행 시 쌓이는 대화 이력/이벤트 로그 (사람마다 다름, 공유 안 함)
 src/potner_llm/data/
+
+# 라즈베리 수집기 등이 만드는 런타임 산출물 (센서 CSV·카메라 프레임·급수 이력)
+/data/

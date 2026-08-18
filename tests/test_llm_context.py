@@ -7,7 +7,6 @@
 
 from __future__ import annotations
 
-import pytest
 
 from potner_llm.client import ChatMessage
 from potner_llm.context_builder import (
@@ -67,7 +66,7 @@ def _tool_call_pair(question: str, answer: str) -> list[ChatMessage]:
     ]
 
 
-# ---------------------------------------------------------------- 토큰 근사
+# --- 토큰 근사 ---
 
 
 def test_estimate_tokens_counts_korean_conservatively():
@@ -85,7 +84,7 @@ def test_message_tokens_includes_tool_calls_payload():
     assert message_tokens(with_tools) > message_tokens(plain)
 
 
-# ---------------------------------------------------------------- trim_history
+# --- trim_history ---
 
 
 def test_trim_history_empty_and_unlimited():
@@ -141,7 +140,7 @@ def test_trim_history_leading_orphan_block_dropped_whole():
     assert [m.content for m in trimmed] == ["질문", "답"]
 
 
-# ---------------------------------------------------------------- ContextBuilder
+# --- ContextBuilder ---
 
 
 def test_build_puts_status_and_profile_in_system_prompt_only():
@@ -204,7 +203,7 @@ def test_build_token_budget_shrinks_history_but_keeps_latest():
     assert context.dropped_messages == 2
 
 
-# ---------------------------------------------------------------- DialogueService 연동
+# --- DialogueService 연동 ---
 
 
 def _make_service(tmp_path, **kwargs) -> DialogueService:
@@ -320,15 +319,27 @@ def test_chat_once_offline_fallback_still_remembers_turn(tmp_path):
     assert [m.content for m in service.history] == ["지금 어때?", reply]
 
 
-def test_bounded_history_does_not_split_restored_tool_pairs(tmp_path):
-    """복원/누적된 히스토리에 툴콜 쌍이 있어도 절단면이 쌍 안으로 안 들어간다."""
+def test_chat_once_does_not_split_restored_tool_pairs(tmp_path):
+    """복원/누적된 히스토리에 툴콜 쌍이 있어도 절단면이 쌍 안으로 안 들어간다.
+
+    실제 LLM 호출 경로(chat_once → ContextBuilder.build)로 검증한다 —
+    잘려서 tool 메시지가 고아로 남으면 API에 비정합 시퀀스가 넘어간다.
+    """
     service = _make_service(tmp_path, max_history_turns=1)
     service._history = _tool_call_pair("옛 질문", "옛 답") + [_user("새 질문"), _assistant("새 답")]
+    seen = []
 
-    bounded = service._bounded_history()
+    def fake_chat_with_tools(history, tools, **kwargs):
+        seen.append(list(history))
+        return "이번 답"
 
-    assert [m.content for m in bounded] == ["새 질문", "새 답"]
-    assert all(m.role != "tool" or i > 0 for i, m in enumerate(bounded))
+    service.llm.chat_with_tools = fake_chat_with_tools
+    service.chat_once("이번 질문")
+
+    sent = seen[-1]
+    # 툴콜 쌍이 있는 옛 교환은 통째로 잘리고, 최근 1턴 + 이번 발화만 남는다.
+    assert [m.content for m in sent] == ["새 질문", "새 답", "이번 질문"]
+    assert all(m.role != "tool" for m in sent)
 
 
 def test_llm_error_still_triggers_offline_fallback(tmp_path):

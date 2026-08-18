@@ -100,14 +100,18 @@ def snapshot_from_status(status: PlantStatus) -> SensorSnapshot:
     )
 
 
-# --- 수치 주장 추출 -----------------------------------------------------------
+# --- 수치 주장 추출 ---
 
 # 단위가 붙은 숫자만 주장으로 본다. 단위 없는 숫자("3문장", "이틀")는 센서와
 # 무관한 경우가 대부분이라 검사하지 않는다 (오탐 방지).
 # '도'는 "5분 정도"류 오탐을 막기 위해 숫자에 바로 붙은 경우만 인정한다.
+# 부호: '영하'와 '-'를 인정한다 — 실측이 영하일 때 정답("영하 5도")이
+# +5로 파싱되어 오탐 기각되는 것을 막는다. '-'는 직전이 숫자·점이 아닐
+# 때만 부호로 본다 ("50-60%" 같은 범위 표현을 음수로 오독하지 않도록).
 _NUMBER_CLAIM = re.compile(
-    r"(?P<value>\d+(?:\.\d+)?)\s*(?P<unit>%|퍼센트|°C|℃|lux|룩스|럭스|ppm)"
-    r"|(?P<value2>\d+(?:\.\d+)?)(?P<unit2>도)"
+    r"(?P<sign>영하\s*|(?<![\d.])-)?"
+    r"(?:(?P<value>\d+(?:\.\d+)?)\s*(?P<unit>%|퍼센트|°C|℃|lux|룩스|럭스|ppm)"
+    r"|(?P<value2>\d+(?:\.\d+)?)(?P<unit2>도))"
 )
 
 _UNIT_TO_METRIC = {
@@ -134,12 +138,22 @@ _METRIC_LABEL_KO = {
 _SOIL_CONTEXT = re.compile(r"토양|흙|뿌리|수분")
 _HUMIDITY_CONTEXT = re.compile(r"습도|공기|대기")
 
-# --- 상태 주장 (토양 수분) -----------------------------------------------------
+# 웹 툴(날씨·지식·뉴스) 결과에서 온 수치는 자기 센서 주장이 아니다 — 숫자 앞
+# 일부 구간에 아래 문맥이 있으면 대조를 건너뛴다. 그렇지 않으면 "내일은 3도래"
+# (예보)가 센서 온도와 달라 정답이 기각된다. 시스템 프롬프트가 외부 정보에
+# 출처("바깥은/예보로는/뉴스에서는")를 밝히게 지시하는 것과 맞물리는 장치다.
+# 문맥이 없으면 기존과 동일하게 검사한다 (센서 거짓말 방어는 유지).
+_EXTERNAL_CONTEXT = re.compile(
+    r"내일|모레|주말|예보|날씨|바깥|기온|최저|최고|강수|비 올|뉴스|적정 온도|권장"
+)
+_EXTERNAL_CONTEXT_WINDOW = 12
+
+# --- 상태 주장 (토양 수분) ---
 
 _DRY_CLAIM = re.compile(r"목말|목이 말|건조|말랐|메말|바싹|물이 부족|물이 필요")
 _WET_CLAIM = re.compile(r"촉촉|축축|흠뻑|물이 충분|물은 충분")
 
-# --- 지어낸 이벤트 (급수) ------------------------------------------------------
+# --- 지어낸 이벤트 (급수) ---
 
 # 급수 기록이 없을 때 "언제 물을 줬다/마셨다"는 구체적 회상은 날조로 본다.
 # 기록이 있을 때의 시점 불일치까지는 따지지 않는다 (자연어 시제 해석은 오탐이 많다).
@@ -174,12 +188,10 @@ def verify_response(
 
     result = FactCheckResult(ok=not issues, issues=tuple(issues), claims_checked=checked)
     if result.ok:
-        logger.info("사실성 검증 통과 (대조한 주장 %d개)", checked)
+        logger.info(f"사실성 검증 통과 (대조한 주장 {checked}개)")
     else:
         logger.warning(
-            "사실성 검증 실패 (%s) reply[:80]=%r",
-            ", ".join(result.issue_codes),
-            body[:80],
+            f"사실성 검증 실패 ({', '.join(result.issue_codes)}) reply[:80]={body[:80]!r}"
         )
     return result
 
@@ -201,7 +213,7 @@ def next_action(
     return ACTION_FALLBACK
 
 
-# --- 내부: 수치 주장 대조 ------------------------------------------------------
+# --- 내부: 수치 주장 대조 ---
 
 
 def _check_numeric_claims(
@@ -212,9 +224,14 @@ def _check_numeric_claims(
 ) -> int:
     checked = 0
     for match in _NUMBER_CLAIM.finditer(body):
+        context = body[max(0, match.start() - _EXTERNAL_CONTEXT_WINDOW):match.start()]
+        if _EXTERNAL_CONTEXT.search(context):
+            continue  # 바깥 날씨/일반 지식/뉴스 수치 — 내 센서 주장이 아니다
         raw_value = match.group("value") or match.group("value2")
         unit = match.group("unit") or match.group("unit2")
         value = float(raw_value)
+        if match.group("sign"):
+            value = -value
         metric = _UNIT_TO_METRIC[unit]
         checked += 1
 
@@ -287,7 +304,7 @@ def _within_tolerance(metric: str, claimed: float, actual: float, policy: FactCh
     return True
 
 
-# --- 내부: 상태 주장 대조 ------------------------------------------------------
+# --- 내부: 상태 주장 대조 ---
 
 
 def _check_soil_state_claims(
@@ -307,6 +324,12 @@ def _check_soil_state_claims(
     checked = 0
     dry = _DRY_CLAIM.search(body)
     wet = _WET_CLAIM.search(body)
+    # "건조한 날씨래", "바깥 공기가 건조하대"처럼 날씨/바깥 이야기의 건조·촉촉
+    # 표현은 토양 상태 주장이 아니다 — 표현 주변 구간에 외부 문맥이 있으면 제외.
+    if dry and _external_state_context(body, dry):
+        dry = None
+    if wet and _external_state_context(body, wet):
+        wet = None
     if dry:
         checked += 1
         if sensors.soil > policy.soil_wet_above:
@@ -324,7 +347,17 @@ def _check_soil_state_claims(
     return checked
 
 
-# --- 내부: 지어낸 이벤트 대조 ---------------------------------------------------
+def _external_state_context(body: str, match: "re.Match[str]") -> bool:
+    """상태 표현(건조/촉촉) 주변이 날씨·바깥 이야기인지 판별한다.
+
+    수치 주장과 달리 문맥 단서("날씨래")가 표현 뒤에 오는 경우가 많아
+    앞뒤 양쪽 구간을 본다.
+    """
+    segment = body[max(0, match.start() - 8):match.end() + 8]
+    return bool(re.search(r"날씨|바깥|공기|대기|내일|예보", segment))
+
+
+# --- 내부: 지어낸 이벤트 대조 ---
 
 
 def _check_watering_event_claims(
