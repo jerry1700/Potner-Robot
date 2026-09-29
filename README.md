@@ -7,14 +7,26 @@
   <img src="docs/media/potner.png" width="320" alt="포트너 — 반려식물 로봇">
 </p>
 
-이 저장소의 `Robot-master` 브랜치는 **로봇 본체(Jetson Orin Nano)** 소프트웨어를
-담당합니다. 다른 파트는 별도 브랜치에 있습니다 — `App-master`(Flutter),
-`Server-master`(Spring Boot), `Raspberry-master`(장치 스테이션).
+<p align="center">
+  <b>ROS 2 Humble · Nav2 · SLAM Toolbox · ArUco · YOLO · MQTT · Jetson Orin Nano · ESP32 · Python</b>
+</p>
+
+이 저장소는 **로봇 본체(Jetson Orin Nano)** 소프트웨어를 담습니다. 앱(Flutter),
+서버(Spring Boot), 장치 스테이션(Raspberry Pi)은 팀 GitLab에서 `App-master`,
+`Server-master`, `Raspberry-master` 브랜치로 따로 관리했고, 이 GitHub
+저장소에는 로봇 파트만 옮겨 두었습니다.
+
+**목차** — [무엇을 하는 로봇인가](#무엇을-하는-로봇인가) ·
+[완성 모습](#완성-모습-2026-08-10-시연) · [시연 영상](#시연-영상) ·
+[시스템 구성](#시스템-구성) · [디렉토리 구조](#디렉토리-구조) ·
+[시작하기](#시작하기) · [주행 명령의 흐름](#주행-명령의-흐름) · [테스트](#테스트)
 
 ## 무엇을 하는 로봇인가
 
-포트너는 **화분을 싣고 다니는 로봇**입니다. 판단은 서버가, 수행은 로봇이
-맡습니다.
+포트너는 **화분을 싣고 다니는 로봇**입니다. **임무 판단은 서버가, 수행은
+로봇이** 맡습니다. 서버는 센서값을 보고 "지금 급수하러 가라"처럼 무엇을 할지
+정하고, 로봇은 그 명령을 받아 경로 계획·정밀 도킹·안전 정지를 스스로
+처리합니다.
 
 - **자율 급수·송풍** — 서버가 센서를 보고 급수나 송풍이 필요하다고 판단하면
   임무를 내리고, 로봇은 어느 위치에 있든 SLAM 지도 위에서 장치 스테이션까지
@@ -40,15 +52,24 @@
 
 ### 시연 영상
 
-| 자동 급수 전체 시나리오 | 스테이션 자동 도킹과 급수 |
+썸네일을 누르면 영상 파일(MP4)이 열립니다.
+
+| 자동 급수 전체 시나리오 (1분 12초) | 스테이션 자동 도킹과 급수 (56초) |
 |:---:|:---:|
-| ![자동 급수 전체 시나리오](docs/media/watering-scenario.mp4) | ![스테이션 자동 도킹과 급수](docs/media/docking-watering.mp4) |
-| 물이 부족하면 임의의 위치에서 스테이션을 찾아가<br>필요한 행동을 마치고 대기 장소로 복귀 | 마커 도킹부터 급수까지 가까이에서 본 장면 |
+| <a href="docs/media/watering-scenario.mp4"><img src="docs/media/watering-scenario-thumb.jpg" width="360" alt="자동 급수 전체 시나리오 영상"></a> | <a href="docs/media/docking-watering.mp4"><img src="docs/media/docking-watering-thumb.jpg" width="360" alt="스테이션 자동 도킹과 급수 영상"></a> |
+| 물이 부족하면 임의의 위치에서 스테이션을 찾아가<br>필요한 행동을 마치고 대기 장소로 복귀<br>[▶ 영상 보기](docs/media/watering-scenario.mp4) | 마커 도킹부터 급수까지 가까이에서 본 장면<br>[▶ 영상 보기](docs/media/docking-watering.mp4) |
 
 ## 시스템 구성
 
+| 계층 | 위치 | 역할 |
+|---|---|---|
+| 서버 (Spring Boot) | 서버 파트 | 센서값을 보고 임무를 결정·스케줄링 — 급수·송풍·촬영·이동 명령을 MQTT로 내림 |
+| **Jetson Orin Nano (ROS 2)** | **이 저장소** | 인식(YOLO·ArUco), 경로 계획(Nav2), 정밀 도킹, 안전 정지, 서버 연동 |
+| **ESP32** | **이 저장소** (`src/potner_firmware`) | 엔코더·PID·PWM — 실시간 모터 제어 |
+| 장치 스테이션 (Raspberry Pi) | 스테이션 파트 | 도킹한 로봇의 화분에 급수·송풍, 식물 사진 촬영 |
+
 ```
-① Jetson Orin Nano — 판단
+① Jetson Orin Nano — 인식·경로 계획·서버 연동 (ROS 2)
    ├ USB ─ LiDAR (YDLIDAR X4 Pro), 카메라 (BRIO 100), 스피커
    ├ DP ─ 액티브 어댑터 ─ 7인치 LCD 1024x600 (표정)
    │      ⚠️ 젯슨에 HDMI 단자가 없습니다. 패시브 어댑터는 동작하지
@@ -67,10 +88,10 @@
    ⚠️ 두 팩의 GND는 반드시 한 가닥으로 연결 (플러스는 절대 금지)
 ```
 
-**역할을 나눈 이유** — 엔코더는 초당 약 2,930카운트 × 2개가 들어옵니다.
+**젯슨과 ESP32를 나눈 이유** — 엔코더는 초당 약 2,930카운트 × 2개가 들어옵니다.
 리눅스는 실시간 OS가 아니라 파이썬으로 이걸 세면 카운트를 흘리고, 그러면
 오도메트리가 틀어져 Nav2와 AMCL이 통째로 무너집니다. 그래서 실시간이
-필요한 일(엔코더, PID, PWM)은 ESP32가, 판단이 필요한 일(경로계획, 비전,
+필요한 일(엔코더, PID, PWM)은 ESP32가, 계산이 무거운 일(경로 계획, 비전,
 서버 연동)은 젯슨이 맡습니다.
 
 ## 디렉토리 구조
@@ -149,7 +170,7 @@ export POTNER_MQTT_PASSWORD='<브로커 비밀번호>'   # 서버 팀에게 받�
 ### 2. 워크스페이스 빌드
 
 ```bash
-git clone <이 저장소> ~/potner_ws
+git clone https://github.com/jerry1700/Potner-Robot.git ~/potner_ws
 cd ~/potner_ws
 rosdep install --from-paths src --ignore-src -r -y
 colcon build --symlink-install
