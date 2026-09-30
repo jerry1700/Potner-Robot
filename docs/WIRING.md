@@ -49,16 +49,14 @@
 
 | 연결 | 대상 | 비고 |
 |---|---|---|
-| USB | LiDAR (YDLIDAR X4 Pro) | `/dev/ttyUSB*`, ESP32와 시리얼 번호로 구분 |
+| USB | LiDAR (YDLIDAR X4 Pro) | CP2102, `/dev/ttyUSB*` → `/dev/ydlidar`로 고정 |
 | USB | 카메라 (BRIO 100) | `/dev/video_cam` (udev 규칙으로 고정). UVC 라 `/dev/video*` 노드가 둘 이상 생겨 번호로는 못 고릅니다 |
 | USB | 사운드카드 → PAM8403 앰프 → 8Ω 스피커 | 확인: `aplay -l` (아래) |
-| USB | ESP32 | `/dev/ttyUSB_ESP32` (udev 규칙으로 고정) |
+| USB | ESP32 | CH340 (`1a86:7523`), `/dev/ttyUSB_ESP32` (udev 규칙으로 고정) |
 | DP (액티브 어댑터) | 7인치 LCD 1024×600 | 젯슨에 HDMI 단자 없음. 패시브 어댑터 동작 안 함 → [`JETSON_DISPLAY.md`](JETSON_DISPLAY.md) |
 | I2C 버스7 (40핀 헤더 3번=SDA, 5번=SCL) | BH1750, ADS1115, INA226 | 세 칩이 같은 버스를 병렬 공유, 주소로 구분 |
 
-**LiDAR·ESP32가 둘 다 `/dev/ttyUSB*`로 잡히는 문제**: 둘 다 CP210x 칩이라
-꽂는 순서에 따라 번호가 바뀔 수 있습니다. 시리얼 번호로 구분한 udev
-규칙이 이미 있습니다 (`README.md` "USB 장치 이름 고정" 참고).
+**LiDAR·ESP32가 둘 다 `/dev/ttyUSB*`로 잡히는 문제**: LiDAR는 CP2102, ESP32 DevKit V1은 CH340(`1a86:7523`)이지만 둘 다 ttyUSB 계열로 잡혀 꽂는 순서에 따라 번호가 바뀔 수 있습니다. 장치별 vendor/product ID 기반 udev 규칙으로 고정합니다 (`README.md` "USB 장치 이름 고정" 참고).
 
 ### 스피커가 안 들릴 때
 
